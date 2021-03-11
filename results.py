@@ -51,26 +51,26 @@ def add_group_column(df, group_cols, do_print=False):
 
 
 def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
-         legend=True, plot_func=sns.pointplot, plot_kws={}):
+         legend=True, ylim={}, plot_func=sns.pointplot, plot_kws={}):
 
     if x is None:
         x = [p for p in df.index.names if p != 'job_name']
+    x = as_non_string_iterable(x)
 
     if y is None:
         y = df.columns
+    y = as_non_string_iterable(y)
+
+    grouped = (hue is True)
 
     df = df.reset_index()
     assert len(df) > 0, 'empty data frame'
 
-    x = as_non_string_iterable(x)
-    y = as_non_string_iterable(y)
-    grouped = (hue is True)
     n_rows, n_cols = get_n_rows_and_cols(x, y, n_cols)
-
     fig, axes = plt.subplots(
         n_rows, n_cols, figsize=(width*n_cols, height*n_rows), squeeze=False
     )
-    iter_axes = iter(axes.transpose().flatten())
+    iter_axes = iter(axes.flatten())
 
     for i, x_i in enumerate(x):
 
@@ -78,18 +78,27 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
             hue = add_group_column(df, [x_j for x_j in x if x_j != x_i])
 
         for j, y_j in enumerate(y):
-            ax = next(iter_axes)
-            plot_func(data=df, x=x_i, y=y_j, hue=hue, ax=ax, **plot_kws)
-            handles, labels = ax.get_legend_handles_labels()
-            ax.legend_.remove()
 
-            if i > 0 and False:
+            ax = next(iter_axes)
+            col_idx = (i*len(x) + j) % n_cols
+            row_idx = (i*len(x) + j) // n_cols
+
+            plot_func(data=df, x=x_i, y=y_j, hue=hue, ax=ax, **plot_kws)
+
+            if i == 0 and j == 0:
+                handles, labels = ax.get_legend_handles_labels()
+
+            if ax.legend_:
+                ax.legend_.remove()
+
+            if col_idx > 0 and len(y) == 1:
                 ax.set_ylabel(None)
                 ax.set_yticklabels([])
 
-            if j+1 < len(y) and False:
+            if row_idx < n_rows-1 and len(x) == 1:
                 ax.set_xlabel(None)
                 ax.set_xticklabels([])
+
             elif legend:
                 ax.legend(
                     handles, labels,
@@ -98,10 +107,14 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
                     frameon=False,
                 )
 
+            if y_j in ylim:
+                ax.set_ylim(*ylim[y_j])
+
     for ax in iter_axes:
         ax.axis('off')
 
     sns.despine(top=True, right=True)
+    fig.tight_layout()
     return fig
 
 
