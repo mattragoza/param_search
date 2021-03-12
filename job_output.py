@@ -77,13 +77,13 @@ def get_job_metric(job_file, metric_pat):
     for m in match_files_in_dir(job_dir, metric_pat):
         metric_file = os.path.join(job_dir, m.group(0))
         df = pd.read_csv(metric_file, sep=' ')
-        df['job_name'] = job_name
         dfs.append(df)
 
     df = pd.concat(dfs)
 
     params = read_params(job_file, line_start='# ')
     for param, value in params.items():
+        assert param not in df, param + ' is both a param and a metric'
         df[param] = value
 
     return df
