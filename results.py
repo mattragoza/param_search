@@ -14,7 +14,11 @@ from scipy import stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from .common import get_terminal_size, as_non_string_iterable
+from .common import (
+    get_terminal_size,
+    non_string_iterable,
+    as_non_string_iterable
+)
 
 
 def get_n_rows_and_cols(x, y, n_cols=None):
@@ -29,7 +33,7 @@ def get_n_rows_and_cols(x, y, n_cols=None):
 
 @lru_cache(100)
 def make_group_value_from_tuple(tup):
-    return str(tup).replace('False', 'F').replace('True', 'T')
+    return str(tup).replace('False', '0').replace('True', '1')
 
 
 def make_group_value(values):
@@ -63,6 +67,9 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
 
     grouped = (hue is True)
 
+    if non_string_iterable(hue):
+        hue = add_group_column(df, list(hue))
+
     df = df.reset_index()
     assert len(df) > 0, 'empty data frame'
 
@@ -85,9 +92,6 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
 
             plot_func(data=df, x=x_i, y=y_j, hue=hue, ax=ax, **plot_kws)
 
-            if i == 0 and j == 0:
-                handles, labels = ax.get_legend_handles_labels()
-
             if ax.legend_:
                 ax.legend_.remove()
 
@@ -100,8 +104,10 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
                 ax.set_xticklabels([])
 
             elif legend:
+                handles, labels = ax.get_legend_handles_labels()
                 ax.legend(
                     handles, labels,
+                    title=hue,
                     loc='upper left',
                     bbox_to_anchor=(0, -0.25),
                     frameon=False,
