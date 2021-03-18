@@ -21,7 +21,16 @@ def match_files_in_dir(dir, pat):
     for file in os.listdir(dir):
         m = pat.match(file)
         if m is not None:
-            yield m  
+            yield m
+
+
+def read_stdout_file(stdout_file):
+    output = None
+    with open(stdout_file) as f:
+        for line in f:
+            if line:
+                output = line.rstrip()
+    return output
 
 
 def read_stderr_file(stderr_file):
@@ -95,8 +104,11 @@ def get_job_metrics(job_files, metric_pat=r'(\d+).metrics'):
     '''
     dfs = []
     for job_file in job_files:
-        df = get_job_metric(job_file, metric_pat)
-        dfs.append(df)
+        try:
+            df = get_job_metric(job_file, metric_pat)
+            dfs.append(df)
+        except ValueError as e:
+            print(job_file, e, file=sys.stderr)
 
     return pd.concat(dfs)
 
