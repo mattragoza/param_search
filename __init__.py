@@ -10,3 +10,4 @@ from .results import plot
 # TODO allow switching to TorqueQueue
 submit = SlurmQueue.submit_job_scripts
 status = SlurmQueue.get_job_status
+cancel = SlurmQueue.cancel_job

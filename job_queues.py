@@ -52,9 +52,15 @@ class JobQueue(object):
 
     @classmethod
     def get_job_status(cls, *args, **kwargs):
-        status_cmd = cls.get_status_cmd(**kwargs)
-        status_out = call_subprocess(status_cmd)
-        return cls.parse_status_out(status_out)
+        cmd = cls.get_status_cmd(*args, **kwargs)
+        out = call_subprocess(cmd)
+        return cls.parse_status_out(out)
+
+    @classmethod
+    def cancel_job(cls, *args, **kwargs):
+        cmd = cls.get_cancel_cmd(*args, **kwargs)
+        return call_subprocess(cmd)
+
 
 
 class SlurmQueue(JobQueue):
@@ -69,12 +75,21 @@ class SlurmQueue(JobQueue):
     @classmethod
     def get_status_cmd(cls, *args, **kwargs):
         out_format = r'%i %P %j %u %t %M %l %R %Z'
-        status_cmd = 'squeue --format="{}"'.format(out_format)
+        cmd = 'squeue --format="{}"'.format(out_format)
         for a in args:
-            status_cmd += ' ' + a
+            cmd += ' ' + a
         for k, v in kwargs.items():
-            status_cmd += ' --' + k + ' ' + v
-        return status_cmd
+            cmd += ' --' + k + ' ' + v
+        return cmd
+
+    @classmethod
+    def get_cancel_cmd(cls, *args, **kwargs):
+        cmd = 'scancel '
+        for a in args:
+            cmd += ' ' + a
+        for k, v in kwargs.items():
+            cmd += ' --' + k + ' ' + v
+        return cmd
 
     @classmethod
     def parse_submit_out(cls, stdout):
