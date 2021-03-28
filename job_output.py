@@ -24,24 +24,27 @@ def match_files_in_dir(dir, pat):
             yield m
 
 
+output_re = re.compile(
+    r'.*(Iteration|iteration).*(phase=train model=gen).*'
+)
 def read_stdout_file(stdout_file):
     output = None
     with open(stdout_file) as f:
         for line in f:
-            if line:
+            if output_re.match(line):
                 output = line.rstrip()
     return output
 
 
+warning_re = re.compile(r'Warning.*')
+error_re = re.compile(
+    r'.*(Error|Exception|error|fault|failed|Errno).*'
+)
 def read_stderr_file(stderr_file):
-    warning_pat = re.compile(r'Warning.*')
-    error_pat = re.compile(
-        r'.*(Error|Exception|error|fault|failed|Errno).*'
-    )
     error = None
     with open(stderr_file) as f:
         for line in f:
-            if not warning_pat.match(line) and error_pat.match(line):
+            if not warning_re.match(line) and error_re.match(line):
                 error = line.rstrip()
     return error
 
@@ -75,9 +78,38 @@ def get_job_errors(job_files, stderr_pat=r'(\d+).stderr'):
     return errors
 
 
+def get_job_output(job_file, stdout_pat):
+    '''
+    Parse the latest output for job_file.
+    '''
+    job_dir = os.path.dirname(job_file)
+    stdout_files = []
+    for m in match_files_in_dir(job_dir, stdout_pat):
+        stdout_file = m.group(0)
+        job_id = int(m.group(1))
+        stdout_files.append((job_id, stdout_file))
+
+    job_id, stdout_file = sorted(stdout_files)[-1]
+    stdout_file = os.path.join(job_dir, stdout_file)
+    output = read_stdout_file(stdout_file)
+    return output
+
+
+def get_job_outputs(job_files, stdout_pat=r'(\d+).stdout'):
+    '''
+    Parse the latest outputs for a set of job_files.
+    '''
+    outputs = []
+    for job_file in job_files:
+        output = get_job_output(job_file, stdout_pat)
+        outputs.append(output)
+
+    return outputs
+
+
 def get_job_metric(job_file, metric_pat):
     '''
-    Read the latest output for job_file.
+    Read the latest metrics for job_file.
     '''
     job_dir = os.path.dirname(job_file)
     job_name = os.path.basename(job_dir)
