@@ -5,14 +5,14 @@ from . import params
 from .common import read_file, write_file
 
 
-def setup_job_scripts(
+def setup_job_files(
     expt_dir,
     name_format,
     template_file,
     param_space,
 ):
     '''
-    Write a job script in a separate sub dir of expt_dir
+    Write a job file in a separate sub dir of expt_dir
     for every set of params in param_space, by formatting
     template_file with the params. Name the created dirs
     by formatting name_format with the params.
@@ -31,15 +31,15 @@ def setup_job_scripts(
             os.makedirs(job_dir)
 
         job_file = os.path.join(job_dir, job_base)
-        write_job_script(job_file, template, job_params)
+        write_job_file(job_file, template, job_params)
         job_files.append(job_file)
 
     return job_files
 
 
-def write_job_script(job_file, template, job_params):
+def write_job_file(job_file, template, job_params):
     '''
-    Write a job script to job_file by filling in
+    Write a job file to job_file by filling in
     template with job_params.
     '''
     params_str = params.format_params(job_params, line_start='# ')
