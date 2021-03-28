@@ -3,7 +3,7 @@ if __name__ == '__main__':
     import matplotlib
     matplotlib.use('Agg')
 import sys, os, re, glob, argparse, parse, ast, shutil
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from functools import lru_cache
 import numpy as np
 import scipy.stats as stats
@@ -55,7 +55,7 @@ def add_group_column(df, group_cols, do_print=False):
 
 
 def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
-         legend=True, ylim={}, plot_func=sns.pointplot, plot_kws={}):
+         legend=True, xlim={}, ylim={}, plot_func=sns.pointplot, plot_kws={}):
 
     if x is None:
         x = [p for p in df.index.names if p != 'job_name']
@@ -89,6 +89,8 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
             ax = next(iter_axes)
             col_idx = (i*len(x) + j) % n_cols
             row_idx = (i*len(x) + j) // n_cols
+            if j == 0:
+                sharey_ax = ax
 
             plot_func(data=df, x=x_i, y=y_j, hue=hue, ax=ax, **plot_kws)
 
@@ -105,13 +107,18 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
 
             elif legend:
                 handles, labels = ax.get_legend_handles_labels()
+                label_map = OrderedDict(zip(labels, handles))
                 ax.legend(
-                    handles, labels,
+                    label_map.values(),
+                    label_map.keys(),
                     title=hue,
                     loc='upper left',
                     bbox_to_anchor=(0, -0.25),
                     frameon=False,
                 )
+
+            if x_i in xlim:
+                ax.set_xlim(*xlim[x_i])
 
             if y_j in ylim:
                 ax.set_ylim(*ylim[y_j])
