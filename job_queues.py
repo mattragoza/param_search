@@ -77,9 +77,14 @@ class SlurmQueue(JobQueue):
         out_format = r'%i %P %j %u %t %M %l %R %Z'
         cmd = 'squeue --format="{}"'.format(out_format)
         for a in args:
-            cmd += ' ' + a
+            cmd += ' ' + str(a)
         for k, v in kwargs.items():
-            cmd += ' --' + k + ' ' + v
+            if isinstance(v, list):
+                v = ','.join(map(str, v))
+            if len(k) == 1:
+                cmd += ' -{} {}'.format(k, v)
+            else:
+                cmd += ' --{}={}'.format(k, v)
         return cmd
 
     @classmethod

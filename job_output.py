@@ -25,7 +25,7 @@ def match_files_in_dir(dir, pat):
 
 
 output_re = re.compile(
-    r'.*(Iteration|iteration).*(phase=train model=gen).*'
+    r'^\[(.+)\].*'
 )
 def read_stdout_file(stdout_file):
     output = None
@@ -130,7 +130,7 @@ def get_job_metric(job_file, metric_pat):
     return df
 
 
-def get_job_metrics(job_files, metric_pat=r'(\d+).metrics'):
+def get_job_metrics(job_files, metric_pat=r'(.+)\.(.*)metrics'):
     '''
     Read the latest output for a set of job_files.
     '''
