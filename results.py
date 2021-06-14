@@ -33,6 +33,7 @@ def get_n_rows_and_cols(x, y, n_cols=None):
 
 @lru_cache(100)
 def make_group_value_from_tuple(tup):
+    #tup = tuple('{:.1e}'.format(v) if isinstance(v, float) else v for v in tup)
     return str(tup).replace('False', '0').replace('True', '1')
 
 
@@ -54,9 +55,34 @@ def add_group_column(df, group_cols, do_print=False):
     return group
 
 
-def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
-         legend=True, xlim={}, ylim={}, plot_func=sns.pointplot, plot_kws={}):
+def as_array_idx(i, n):
+    '''
+    Convert i to an index into an array
+    of length n, i.e. negative values
+    index from the end of the array.
+    '''
+    return n + i if i < 0 else i
 
+
+def plot(
+    df,
+    x=None,
+    y=None,
+    hue=True,
+    height=3,
+    width=3,
+    n_cols=None,
+    xlim={},
+    ylim={},
+    plot_func=sns.pointplot,
+    plot_kws={},
+    legend=True,
+    legend_row=-1,
+    legend_col=None,
+    legend_kws={},
+    debug=False,
+    tight=True,
+):
     if x is None:
         x = [p for p in df.index.names if p != 'job_name']
     x = as_non_string_iterable(x)
@@ -70,66 +96,107 @@ def plot(df, x=None, y=None, hue=True, height=3, width=3, n_cols=None,
     if non_string_iterable(hue):
         hue = add_group_column(df, list(hue))
 
+    legend_defaults = dict(
+        loc='upper left',
+        bbox_to_anchor=(0, -0.25),
+        frameon=False,
+    )
+    legend_defaults.update(legend_kws)
+    legend_kws = legend_defaults
+
     df = df.reset_index()
     assert len(df) > 0, 'empty data frame'
 
     n_rows, n_cols = get_n_rows_and_cols(x, y, n_cols)
+
+    if legend_row is not None:
+        legend_row = as_array_idx(legend_row, n_rows)
+    if legend_col is not None:
+        legend_col = as_array_idx(legend_col, n_cols)
+
     fig, axes = plt.subplots(
         n_rows, n_cols, figsize=(width*n_cols, height*n_rows), squeeze=False
     )
     iter_axes = iter(axes.flatten())
 
-    for i, x_i in enumerate(x):
-
-        if grouped:
+    if grouped: # for each x data, group by every other x data
+        grouped_hues = dict()
+        for i, x_i in enumerate(x):
             hue = add_group_column(df, [x_j for x_j in x if x_j != x_i])
+            grouped_hues[x_i] = hue
 
-        for j, y_j in enumerate(y):
+    # track whether any rows/columns all have the same x/y data
+    row_ys = defaultdict(set)
+    col_xs = defaultdict(set)
+
+    for i, y_i in enumerate(y):
+
+        for j, x_j in enumerate(x):
 
             ax = next(iter_axes)
             col_idx = (i*len(x) + j) % n_cols
             row_idx = (i*len(x) + j) // n_cols
+            row_ys[row_idx].add(y_i)
+            col_xs[col_idx].add(x_j)
+
             if j == 0:
                 sharey_ax = ax
 
-            plot_func(data=df, x=x_i, y=y_j, hue=hue, ax=ax, **plot_kws)
+            if grouped:
+                hue = grouped_hues[x_j]
+
+            if debug:
+                print((y_i, x_j), (row_idx, col_idx), file=sys.stderr)
+            plot_func(data=df, x=x_j, y=y_i, hue=hue, ax=ax, **plot_kws)
 
             if ax.legend_:
                 ax.legend_.remove()
 
-            if col_idx > 0 and len(y) == 1:
-                ax.set_ylabel(None)
-                ax.set_yticklabels([])
-
-            if row_idx < n_rows-1 and len(x) == 1:
-                ax.set_xlabel(None)
-                ax.set_xticklabels([])
-
-            elif legend:
+            if (
+                legend and
+                (legend_row is None or row_idx == legend_row) and
+                (legend_col is None or col_idx == legend_col)
+            ):
                 handles, labels = ax.get_legend_handles_labels()
                 label_map = OrderedDict(zip(labels, handles))
+                if 'title' not in legend_kws:
+                    legend_kws['title'] = hue
                 ax.legend(
                     label_map.values(),
                     label_map.keys(),
-                    title=hue,
-                    loc='upper left',
-                    bbox_to_anchor=(0, -0.25),
-                    frameon=False,
+                    **legend_kws,
                 )
 
-            if x_i in xlim:
-                ax.set_xlim(*xlim[x_i])
+            if x_j in xlim:
+                ax.set_xlim(*xlim[x_j])
 
-            if y_j in ylim:
-                ax.set_ylim(*ylim[y_j])
+            if y_i in ylim:
+                ax.set_ylim(*ylim[y_i])
 
+    # only show left-most y label on rows with the same y data
+    for row_idx in range(n_rows):
+        if len(row_ys[row_idx]) < 2:
+            for col_idx in range(1, n_cols):
+                ax = axes[row_idx,col_idx]
+                ax.set_ylabel(None)
+                ax.set_yticklabels([])
+
+    # only show bottom-most x label on columns with the same x data
+    for col_idx in range(n_cols):
+        if len(col_xs[col_idx]) < 2:
+            for row_idx in range(n_rows-1):
+                ax = axes[row_idx,col_idx]
+                ax.set_xlabel(None)
+                ax.set_xticklabels([])
+
+    # turn off remaining axes that have nothing plotted
     for ax in iter_axes:
         ax.axis('off')
 
     sns.despine(top=True, right=True)
-    fig.tight_layout()
+    if tight:
+        fig.tight_layout()
     return fig
-
 
 
 def annotate_pearson_r(x, y, **kwargs):
