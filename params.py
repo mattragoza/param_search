@@ -1,4 +1,4 @@
-import re, ast
+import re, ast, random
 import itertools
 from collections import OrderedDict
 
@@ -7,8 +7,8 @@ from .common import read_file, write_file, as_non_string_iterable
 
 class Params(OrderedDict):
     '''
-    Params represents a single point in a ParamSpace,
-    a particular assignment of values to parameters.
+    A Params object represents a point in a ParamSpace,
+    i.e. a particular assignment of values to parameters.
     '''
     space = None
 
@@ -17,10 +17,70 @@ class Params(OrderedDict):
         return cls(*read_params(params_file).item())
 
 
-class ParamSpace(OrderedDict):
+class AbstractParamSpace(object):
+
+    def __init__(self, *args, **kwargs):
+        raise NotImpementedError('abstract')
+
+    def __mul__(self, other):
+        return ParamSpaceProduct(self, other)
+
+    def __add__(self, other):
+        return ParamSpaceSum(self, other)
+
+    def __and__(self, other):
+        return ParamSpaceProduct(self, other)
+
+    def __or__(self, other):
+        return ParamSpaceSum(self, other)
+
+    def sample(self, n):
+        '''
+        Return a random sample of n Params
+        from the space without replacement.
+        '''
+        return random.sample(list(self), n)
+
+
+class ParamSpaceProduct(AbstractParamSpace):
+
+    def __init__(self, term1, term2):
+        assert not any(k in term2 for k in term1), \
+            'cannot multiply spaces with common keys'
+        self.term1 = term1
+        self.term2 = term2
+
+    def __iter__(self):
+        for params1 in self.term1:
+            for params2 in self.term2:
+                params = params1.copy()
+                params.update(params2)
+                yield params
+
+    def __len__(self):
+        return len(self.term1) * len(self.term2)
+
+
+class ParamSpaceSum(AbstractParamSpace):
+
+    def __init__(self, term1, term2):
+        self.term1 = term1
+        self.term2 = term2
+
+    def __iter__(self):
+        for params in self.term1:
+            yield params
+        for params in self.term2:
+            yield params
+
+    def __len__(self):
+        return len(self.term1) + len(self.term2)
+
+
+class ParamSpace(AbstractParamSpace, OrderedDict):
     '''
-    ParamSpace defines ranges of possible values for a set
-    of parameters. Iterating over the space produces elements
+    A ParamSpace defines ranges of possible values for a set
+    of parameters. Iterating over the space produces Params
     from the Cartesian product of the parameter ranges.
     '''
     def __init__(self, *args, **kwargs):
@@ -35,9 +95,9 @@ class ParamSpace(OrderedDict):
         super().__setitem__(key, as_non_string_iterable(value))
 
     def __iter__(self):
-        params = self.keys()
+        keys = self.keys()
         for values in itertools.product(*self.values()):
-            yield self.Params(zip(params, values))
+            yield self.Params(zip(keys, values))
 
     def __len__(self):
         values = self.values()
