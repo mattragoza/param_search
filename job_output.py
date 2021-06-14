@@ -38,7 +38,7 @@ def read_stdout_file(stdout_file):
 
 warning_re = re.compile(r'Warning.*')
 error_re = re.compile(
-    r'.*(Error|Exception|error|fault|failed|Errno).*'
+    r'.*(Error|Exception|error|fault|failed|Errno|Killed).*'
 )
 def read_stderr_file(stderr_file):
     error = None
