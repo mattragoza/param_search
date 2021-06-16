@@ -19,9 +19,6 @@ class Params(OrderedDict):
 
 class AbstractParamSpace(object):
 
-    def __init__(self, *args, **kwargs):
-        raise NotImpementedError('abstract')
-
     def __mul__(self, other):
         return ParamSpaceProduct(self, other)
 

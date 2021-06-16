@@ -3,7 +3,16 @@ from contextlib import contextmanager
 import pandas as pd
 from subprocess import Popen, PIPE
 
-from .common import read_file, write_file
+from .common import read_file, write_file, non_string_iterable
+
+
+def as_cmd_arg(val):
+    if non_string_iterable(val):
+        return ','.join(map(str, val))
+    elif not isinstance(val, str):
+        return str(val)
+    else:
+        return val
 
 
 class SubprocessError(RuntimeError):
@@ -69,7 +78,7 @@ class SlurmQueue(JobQueue):
     def get_submit_cmd(cls, job_file, array_idx=None):
         cmd = 'sbatch '
         if array_idx is not None:
-            cmd += '--array={} '.format(array_idx)
+            cmd += '--array={} '.format(as_cmd_arg(array_idx))
         return cmd + job_file
 
     @classmethod
@@ -79,21 +88,19 @@ class SlurmQueue(JobQueue):
         for a in args:
             cmd += ' ' + str(a)
         for k, v in kwargs.items():
-            if isinstance(v, list):
-                v = ','.join(map(str, v))
             if len(k) == 1:
-                cmd += ' -{} {}'.format(k, v)
+                cmd += ' -{} {}'.format(k, as_cmd_arg(v))
             else:
-                cmd += ' --{}={}'.format(k, v)
+                cmd += ' --{}={}'.format(k, as_cmd_arg(v))
         return cmd
 
     @classmethod
     def get_cancel_cmd(cls, *args, **kwargs):
         cmd = 'scancel '
         for a in args:
-            cmd += ' ' + a
+            cmd += ' ' + as_cmd_arg(a)
         for k, v in kwargs.items():
-            cmd += ' --' + k + ' ' + v
+            cmd += ' --' + k + ' ' + as_cmd_arg(v)
         return cmd
 
     @classmethod
@@ -115,7 +122,7 @@ class SlurmQueue(JobQueue):
             for i, field in enumerate(fields):
                 col_data[columns[i]].append(field)
 
-        return pd.DataFrame(col_data).rename(columns={
+        df = pd.DataFrame(col_data).rename(columns={
             'JOBID': 'job_id',
             'PARTITION': 'queue',
             'NAME': 'job_name',
@@ -126,6 +133,13 @@ class SlurmQueue(JobQueue):
             'NODELIST(REASON)': 'node_id',
             'WORK_DIR': 'work_dir'
         })
+        df['job_id'] = df['job_id'].astype(int)
+
+        node_re = re.compile(r'^(.*)\((.*)\)$')
+        matches = [node_re.match(x) for x in df['node_id']]
+        df['node_id'] = [m.group(1) for m in matches]
+        df['reason'] = [m.group(2) for m in matches]
+        return df
 
 
 class TorqueQueue(JobQueue):
@@ -134,7 +148,7 @@ class TorqueQueue(JobQueue):
     def get_submit_cmd(cls, job_file, array_idx=None):
         cmd = 'qsub ' + job_file
         if array_idx is not None:
-            cmd += ' -t {}'.format(array_idx)
+            cmd += ' -t {}'.format(as_cmd_arg(array_idx))
         return cmd
 
     @classmethod
