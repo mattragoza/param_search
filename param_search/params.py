@@ -92,19 +92,20 @@ class ParamSpace(AbstractParamSpace, OrderedDict):
         super().__setitem__(key, as_non_string_iterable(value))
 
     def __iter__(self):
-        keys = self.keys()
-        for values in itertools.product(*self.values()):
+        keys, values = self.keys(), self.values()
+        for values in itertools.product(*values):
             yield self.Params(zip(keys, values))
 
     def __len__(self):
+        # NOTE that 0**0 == 1 in python
+        # in plain terms, we still want
+        # to submit a job, even if it
+        # has no parameterized values
         values = self.values()
-        if values:
-            n = 1
-            for value in values:
-                n *= len(value)
-            return n
-        else:
-            return 0
+        n = 1
+        for value in values:
+            n *= len(value)
+        return n
 
 
 def parse_params(buf, line_start='', converter=ast.literal_eval):
