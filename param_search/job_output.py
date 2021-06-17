@@ -24,29 +24,68 @@ def match_files_in_dir(dir, pat):
             yield m
 
 
-output_re = re.compile(
-    r'^\[(.+)\].*'
-)
-def read_stdout_file(stdout_file):
-    output = None
-    with open(stdout_file) as f:
-        for line in f:
-            if output_re.match(line):
-                output = line.rstrip()
-    return output
+def open_reversed(fname, buf_size=8192):
+    '''
+    Iterate over lines of fname in reverse
+    order, up to a max of tail lines.
+    '''
+    with open(fname) as f:
+        segment = None
+        offset = 0
+        f.seek(0, os.SEEK_END)
+        file_size = rem_size = f.tell()
+
+        while rem_size > 0:
+            offset = min(file_size, offset + buf_size)
+            f.seek(file_size - offset)
+            buffer = f.read(min(rem_size, buf_size))
+            rem_size -= buf_size
+            lines = buffer.split('\n')
+
+            # the first line of the buffer is probably not a complete line
+            # so save it and append it to the last line of the next buffer
+            if segment is not None:
+                # if the previous chunk starts at the beginning of a line
+                # do not concat the segment to the last line of new chunk
+                # instead, yield the segment first 
+                if buffer[-1] != '\n':
+                    lines[-1] += segment
+                else:
+                    yield segment
+
+            segment = lines[0]
+            for index in range(len(lines) - 1, 0, -1):
+                if lines[index]:
+                    yield lines[index]
+
+        # Don't yield None if the file was empty
+        if segment is not None:
+            yield segment
 
 
-warning_re = re.compile(r'Warning.*')
-error_re = re.compile(
-    r'.*(Error|Exception|error|fault|failed|Errno|Killed).*'
-)
-def read_stderr_file(stderr_file):
-    error = None
-    with open(stderr_file) as f:
-        for line in f:
-            if not warning_re.match(line) and error_re.match(line):
-                error = line.rstrip()
-    return error
+def read_stdout_file(stdout_file, output_pat=r'^(\[.+\].*)'):
+    print('.', end='')
+    output_re = re.compile(output_pat)
+    for line in open_reversed(stdout_file):
+        m = output_re.match(line)
+        if m:
+            return m.group(1)
+
+
+def read_stderr_file(
+    stderr_file,
+    ignore_pat=None,
+    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$'
+):
+    print('.', end='')
+    if ignore_pat:
+        ignore_re = re.compile(ignore_pat)
+    error_re = re.compile(error_pat)
+    for line in open_reversed(stderr_file):
+        if not ignore_pat or not ignore_re.match(line):
+            m = error_re.match(line)
+            if m:
+                return m.group(1)
 
 
 def get_job_error(job_file, stderr_pat):
