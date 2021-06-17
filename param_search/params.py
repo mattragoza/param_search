@@ -16,6 +16,12 @@ class Params(OrderedDict):
     def from_file(cls, params_file):
         return cls(*read_params(params_file).item())
 
+    def to_tuple(self):
+        return tuple(v for v in self.values())
+
+    def __hash__(self):
+        return hash(self.to_tuple())
+
 
 class AbstractParamSpace(object):
 
@@ -49,19 +55,35 @@ class AbstractParamSpace(object):
     def __ror__(self, other):
         return other + self
 
-    def sample(self, n):
+    def sample(self, k, replace):
         '''
-        Return a random sample of n Params
-        from the space without replacement.
+        Return a random sample of k Params
+        from the parameter space, with or
+        without replacement.
         '''
-        return random.sample(list(self), n)
+        if replace: # don't care if we get repeats
+            return [self.sample_one() for i in range(k)]
+
+        elif k*100 < len(self):
+            # just sample with replacement and
+            # keep trying when we get a repeat
+            samples = [None] * k
+            sampled = set()
+            for i in range(k):
+                params = self.sample_one()
+                while params in sampled:
+                    params = self.sample_one()
+                sampled.add(params)
+                samples[i] = params
+            return samples
+
+        else: # let Guido deal with it
+            return random.sample(list(self), k)
 
 
 class ParamSpaceScalar(AbstractParamSpace):
 
     def __init__(self, const, space):
-        assert isinstance(const, int), const
-        assert isinstance(space, AbstractParamSpace), space
         self.const = const
         self.space = space
 
@@ -73,13 +95,17 @@ class ParamSpaceScalar(AbstractParamSpace):
     def __len__(self):
         return self.const * len(self.space)
 
+    def keys(self):
+        return self.space.keys()
+
+    def sample_one(self):
+        return self.space.sample_one()
+
 
 class ParamSpaceProduct(AbstractParamSpace):
 
     def __init__(self, space1, space2):
-        assert isinstance(space1, AbstractParamSpace), space1
-        assert isinstance(space2, AbstractParamSpace), space2
-        assert not any(k in space2 for k in space1), \
+        assert not any(k in space2.keys() for k in space1.keys()), \
             'cannot multiply spaces with common keys'
         self.space1 = space1
         self.space2 = space2
@@ -94,12 +120,18 @@ class ParamSpaceProduct(AbstractParamSpace):
     def __len__(self):
         return len(self.space1) * len(self.space2)
 
+    def keys(self):
+        return list(self.space1.keys()) + list(self.space2.keys())
+
+    def sample_one(self):
+        params = self.space1.sample_one()
+        params.update(self.space2.sample_one())
+        return params
+
 
 class ParamSpaceSum(AbstractParamSpace):
 
     def __init__(self, space1, space2):
-        assert isinstance(space1, AbstractParamSpace), space1
-        assert isinstance(space2, AbstractParamSpace), space2
         self.space1 = space1
         self.space2 = space2
 
@@ -111,6 +143,17 @@ class ParamSpaceSum(AbstractParamSpace):
 
     def __len__(self):
         return len(self.space1) + len(self.space2)
+
+    def keys(self):
+        return list(self.space1.keys()) + list(self.space2.keys())
+
+    def sample_one(self):
+        n1 = len(self.space1)
+        n2 = len(self.space2) 
+        if random.random() > n1 / (n1 + n2):
+            return self.space2.sample_one()
+        else:
+            return self.space1.sample_one()
 
 
 class ParamSpace(AbstractParamSpace, OrderedDict):
@@ -140,11 +183,15 @@ class ParamSpace(AbstractParamSpace, OrderedDict):
         # in plain language, we still want
         # to submit a job, even if it has
         # no parameterized values
-        values = self.values()
         n = 1
-        for value in values:
-            n *= len(value)
+        for v in self.values():
+            n *= len(v)
         return n
+
+    def sample_one(self):
+        return self.Params(
+            (k, random.choice(v)) for k,v in self.items()
+        )
 
 
 def parse_params(buf, line_start='', converter=ast.literal_eval):

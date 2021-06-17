@@ -53,11 +53,11 @@ class TestParamSpace(object):
         space = ParamSpace(**dims)
         10 * space
 
-    @pytest.fixture(params=range(8))
+    @pytest.fixture(params=range(6))
     def n_dims(self, request):
         return request.param
 
-    @pytest.fixture(params=range(8))
+    @pytest.fixture(params=range(6))
     def n_vals(self, request):
         return request.param
 
@@ -67,7 +67,7 @@ class TestParamSpace(object):
         t_start = time.time()
         assert len(params) == n_vals**n_dims
         t_delta = time.time() - t_start
-        assert t_delta < 1, 'too slow ({:.2f}s)'.format(t_delta)
+        assert t_delta <= 1e-2, 'too slow ({:.4f}s)'.format(t_delta)
 
     def test_benchmark_iter(self, n_dims, n_vals):
         dims = {str(k): range(n_vals) for k in range(n_dims)}
@@ -75,4 +75,25 @@ class TestParamSpace(object):
         t_start = time.time()
         assert len(list(params)) == n_vals**n_dims
         t_delta = time.time() - t_start
-        assert t_delta < 1, 'too slow ({:.2f}s)'.format(t_delta)
+        assert t_delta <= 1e-2, 'too slow ({:.4f}s)'.format(t_delta)
+
+    def test_benchmark_sample0(self, n_dims, n_vals):
+        dims = {str(k): range(n_vals) for k in range(n_dims)}
+        params = ParamSpace(**dims)
+        n = min(1000, len(params))
+        t_start = time.time()
+        samples = params.sample(n, replace=True)
+        t_delta = time.time() - t_start
+        assert len(samples) == n
+        assert t_delta <= 1e-2, 'too slow ({:.4f}s)'.format(t_delta)
+
+    def test_benchmark_sample0(self, n_dims, n_vals):
+        dims = {str(k): range(n_vals) for k in range(n_dims)}
+        params = ParamSpace(**dims)
+        n = min(1000, len(params))
+        t_start = time.time()
+        samples = params.sample(n, replace=False)
+        t_delta = time.time() - t_start
+        assert len(samples) == n
+        assert len(set(samples)) == n
+        assert t_delta <= 1e-2, 'too slow ({:.4f}s)'.format(t_delta)
