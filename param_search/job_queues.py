@@ -5,14 +5,73 @@ from subprocess import Popen, PIPE
 
 from .common import read_file, write_file, non_string_iterable
 
+verbose = False
 
-def as_cmd_arg(val):
+
+def as_cmd_arg_value(val):
     if non_string_iterable(val):
         return ','.join(map(str, val))
     elif not isinstance(val, str):
         return str(val)
     else:
         return val
+
+
+def as_positional_cmd_arg(val):
+    return ' ' + as_cmd_arg_value(val)
+
+
+def as_optional_cmd_arg(key, val):
+    val = as_cmd_arg_value(val)
+    if len(key) == 1:
+        return ' -{} {}'.format(key, val)
+    else:
+        return ' --{}={}'.format(key, val)
+
+
+def as_cmd_args(*args, **kwargs):
+    cmd = ''
+    for v in args:
+        cmd += as_positional_cmd_arg(v)
+    for k, v in kwargs.items():
+        cmd += as_optional_cmd_arg(k, v)
+    return cmd
+
+
+def run_subprocess(cmd, stdin=None, work_dir=None):
+    '''
+    Run cmd as a subprocess with the given stdin,
+    from the given work_dir, and return (stdout, stderr).
+    '''
+    if verbose:
+        print(cmd)
+
+    if sys.platform == 'win32':
+        args = cmd
+    else:
+        args = shlex.split(cmd)
+
+    proc = Popen(args, stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=work_dir)
+    stdout, stderr = proc.communicate(stdin)
+
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode()
+
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode()
+
+    return stdout, stderr
+
+
+def call_subprocess(cmd, stdin=None, work_dir=None):
+    '''
+    Run cmd as a subprocess and raise an exc-
+    eption if there is any stderr.
+    '''
+    stdout, stderr = run_subprocess(cmd, stdin, work_dir)
+    if stderr:
+        raise SubprocessError(stderr)
+    return stdout
 
 
 class SubprocessError(RuntimeError):
@@ -72,36 +131,23 @@ class JobQueue(object):
 
 
 
+
+
 class SlurmQueue(JobQueue):
 
     @classmethod
-    def get_submit_cmd(cls, job_file, array_idx=None):
-        cmd = 'sbatch '
-        if array_idx is not None:
-            cmd += '--array={} '.format(as_cmd_arg(array_idx))
-        return cmd + job_file
+    def get_submit_cmd(cls, job_file, *args, **kwargs):
+        return 'sbatch' + as_cmd_args(*args, **kwargs)
 
     @classmethod
     def get_status_cmd(cls, *args, **kwargs):
-        out_format = r'%i %P %j %u %t %M %l %R %Z'
-        cmd = 'squeue --format="{}"'.format(out_format)
-        for a in args:
-            cmd += ' ' + str(a)
-        for k, v in kwargs.items():
-            if len(k) == 1:
-                cmd += ' -{} {}'.format(k, as_cmd_arg(v))
-            else:
-                cmd += ' --{}={}'.format(k, as_cmd_arg(v))
-        return cmd
+        if 'format' not in kwargs:
+            kwargs['format'] = r'"%i %P %j %u %t %M %l %R %Z"'
+        return r'squeue' + as_cmd_args(*args, **kwargs)
 
     @classmethod
     def get_cancel_cmd(cls, *args, **kwargs):
-        cmd = 'scancel '
-        for a in args:
-            cmd += ' ' + as_cmd_arg(a)
-        for k, v in kwargs.items():
-            cmd += ' --' + k + ' ' + as_cmd_arg(v)
-        return cmd
+        return 'scancel' + as_cmd_args(*args, **kwargs)
 
     @classmethod
     def parse_submit_out(cls, stdout):
@@ -135,10 +181,13 @@ class SlurmQueue(JobQueue):
         })
         df['job_id'] = df['job_id'].astype(int)
 
-        node_re = re.compile(r'^(.*)\((.*)\)$')
-        matches = [node_re.match(x) for x in df['node_id']]
-        df['node_id'] = [m.group(1) for m in matches]
-        df['reason'] = [m.group(2) for m in matches]
+        #node_re = re.compile(r'^(.*)\((.+)\)?$')
+        #matches = [node_re.match(x) for x in df['node_id']]
+        #for i, m in enumerate(matches):
+        #    if m is None:
+        #        print(df.iloc[i])
+        #df['node_id'] = [m.group(1) for m in matches]
+        #df['reason'] = [m.group(2) for m in matches]
         return df
 
 
@@ -180,40 +229,6 @@ class DummyQueue(JobQueue):
     @classmethod
     def get_status_cmd(cls, job_names):
         return 'OK'
-
-
-def run_subprocess(cmd, stdin=None, work_dir=None):
-    '''
-    Run cmd as a subprocess with the given stdin,
-    from the given work_dir, and return (stdout, stderr).
-    '''
-    if sys.platform == 'win32':
-        args = cmd
-    else:
-        args = shlex.split(cmd)
-
-    proc = Popen(args, stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=work_dir)
-    stdout, stderr = proc.communicate(stdin)
-
-    if isinstance(stdout, bytes):
-        stdout = stdout.decode()
-
-    if isinstance(stderr, bytes):
-        stderr = stderr.decode()
-
-    return stdout, stderr
-
-
-def call_subprocess(cmd, stdin=None, work_dir=None):
-    '''
-    Run cmd as a subprocess and raise an exc-
-    eption if there is any stderr.
-    '''
-    stdout, stderr = run_subprocess(cmd, stdin, work_dir)
-    if stderr:
-        raise SubprocessError(stderr)
-    return stdout
-
 
 
 def paren_split(string, sep):
