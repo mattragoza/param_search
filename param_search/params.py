@@ -20,16 +20,34 @@ class Params(OrderedDict):
 class AbstractParamSpace(object):
 
     def __mul__(self, other):
-        return ParamSpaceProduct(self, other)
+        if isinstance(other, int):
+            return ParamSpaceScalar(other, self)
+        else:
+            return ParamSpaceProduct(self, other)
+
+    def __rmul__(self, other):
+        if isinstance(other, int):
+            return ParamSpaceScalar(other, self)
+        else:
+            return ParamSpaceProduct(other, self)
 
     def __add__(self, other):
         return ParamSpaceSum(self, other)
 
+    def __radd__(self, other):
+        return ParamSpaceSum(other, self)
+
     def __and__(self, other):
-        return ParamSpaceProduct(self, other)
+        return self * other
+
+    def __rand__(self, other):
+        return other * self
 
     def __or__(self, other):
-        return ParamSpaceSum(self, other)
+        return self + other
+
+    def __ror__(self, other):
+        return other + self
 
     def sample(self, n):
         '''
@@ -39,39 +57,60 @@ class AbstractParamSpace(object):
         return random.sample(list(self), n)
 
 
-class ParamSpaceProduct(AbstractParamSpace):
+class ParamSpaceScalar(AbstractParamSpace):
 
-    def __init__(self, term1, term2):
-        assert not any(k in term2 for k in term1), \
-            'cannot multiply spaces with common keys'
-        self.term1 = term1
-        self.term2 = term2
+    def __init__(self, const, space):
+        assert isinstance(const, int), const
+        assert isinstance(space, AbstractParamSpace), space
+        self.const = const
+        self.space = space
 
     def __iter__(self):
-        for params1 in self.term1:
-            for params2 in self.term2:
+        for i in range(self.const):
+            for params in self.space:
+                yield params
+
+    def __len__(self):
+        return self.const * len(self.space)
+
+
+class ParamSpaceProduct(AbstractParamSpace):
+
+    def __init__(self, space1, space2):
+        assert isinstance(space1, AbstractParamSpace), space1
+        assert isinstance(space2, AbstractParamSpace), space2
+        assert not any(k in space2 for k in space1), \
+            'cannot multiply spaces with common keys'
+        self.space1 = space1
+        self.space2 = space2
+
+    def __iter__(self):
+        for params1 in self.space1:
+            for params2 in self.space2:
                 params = params1.copy()
                 params.update(params2)
                 yield params
 
     def __len__(self):
-        return len(self.term1) * len(self.term2)
+        return len(self.space1) * len(self.space2)
 
 
 class ParamSpaceSum(AbstractParamSpace):
 
-    def __init__(self, term1, term2):
-        self.term1 = term1
-        self.term2 = term2
+    def __init__(self, space1, space2):
+        assert isinstance(space1, AbstractParamSpace), space1
+        assert isinstance(space2, AbstractParamSpace), space2
+        self.space1 = space1
+        self.space2 = space2
 
     def __iter__(self):
-        for params in self.term1:
+        for params in self.space1:
             yield params
-        for params in self.term2:
+        for params in self.space2:
             yield params
 
     def __len__(self):
-        return len(self.term1) + len(self.term2)
+        return len(self.space1) + len(self.space2)
 
 
 class ParamSpace(AbstractParamSpace, OrderedDict):
@@ -98,9 +137,9 @@ class ParamSpace(AbstractParamSpace, OrderedDict):
 
     def __len__(self):
         # NOTE that 0**0 == 1 in python
-        # in plain terms, we still want
-        # to submit a job, even if it
-        # has no parameterized values
+        # in plain language, we still want
+        # to submit a job, even if it has
+        # no parameterized values
         values = self.values()
         n = 1
         for value in values:

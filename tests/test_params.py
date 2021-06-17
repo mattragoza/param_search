@@ -41,6 +41,18 @@ class TestParamSpace(object):
             i += 1
         assert i == len(params)
 
+    def test_sum(self, dims):
+        space = ParamSpace(**dims)
+        space + space
+
+    def test_product(self, dims):
+        space = ParamSpace(**dims)
+        space + space
+
+    def test_scalar(self, dims):
+        space = ParamSpace(**dims)
+        10 * space
+
     @pytest.fixture(params=range(8))
     def n_dims(self, request):
         return request.param
