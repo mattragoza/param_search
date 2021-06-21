@@ -13,8 +13,8 @@ class Params(OrderedDict):
     space = None
 
     @classmethod
-    def from_file(cls, params_file):
-        return cls(*read_params(params_file).item())
+    def from_file(cls, params_file, line_start=''):
+        return cls(read_params(params_file, line_start).items())
 
     def to_tuple(self):
         return tuple(v for v in self.values())

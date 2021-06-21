@@ -10,6 +10,7 @@ def setup_job_files(
     name_format,
     template_file,
     param_space,
+    **kwargs
 ):
     '''
     Write a job file in a separate sub dir of expt_dir
@@ -23,7 +24,11 @@ def setup_job_files(
     job_files = []
     for job_params in param_space:
 
-        job_name = name_format.format(**job_params)
+        for k, v in kwargs.items():
+            job_params[k] = v
+        job_name = name_format.format(
+            hash=hash(job_params), **job_params
+        )
         job_params['job_name'] = job_name
         job_dir = os.path.join(expt_dir, job_name)
 
