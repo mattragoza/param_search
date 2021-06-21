@@ -63,13 +63,20 @@ def open_reversed(fname, buf_size=8192):
             yield segment
 
 
-def read_stdout_file(stdout_file, output_pat=r'^(\[.+\].*)'):
+def read_stdout_file(
+    stdout_file,
+    ignore_pat=None,
+    output_pat=r'^(\[.+\].*)'
+):
     print('.', end='')
+    if ignore_pat:
+        ignore_re = re.compile(ignore_pat)
     output_re = re.compile(output_pat)
     for line in open_reversed(stdout_file):
-        m = output_re.match(line)
-        if m:
-            return m.group(1)
+        if not ignore_pat or not ignore_re.match(line):
+            m = output_re.match(line)
+            if m:
+                return m.group(1)
 
 
 def read_stderr_file(

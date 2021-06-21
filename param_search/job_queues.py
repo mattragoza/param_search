@@ -130,13 +130,10 @@ class JobQueue(object):
         return call_subprocess(cmd)
 
 
-
-
-
 class SlurmQueue(JobQueue):
 
     @classmethod
-    def get_submit_cmd(cls, job_file, *args, **kwargs):
+    def get_submit_cmd(cls, *args, **kwargs):
         return 'sbatch' + as_cmd_args(*args, **kwargs)
 
     @classmethod
