@@ -132,6 +132,8 @@ class JobQueue(object):
 
 class SlurmQueue(JobQueue):
 
+    DEFAULT_STATUS_FORMAT = r'"%i %P %j %u %t %M %l %R %Z"'
+
     @classmethod
     def get_submit_cmd(cls, *args, **kwargs):
         return 'sbatch' + as_cmd_args(*args, **kwargs)
@@ -139,7 +141,7 @@ class SlurmQueue(JobQueue):
     @classmethod
     def get_status_cmd(cls, *args, **kwargs):
         if 'format' not in kwargs:
-            kwargs['format'] = r'"%i %P %j %u %t %M %l %R %Z"'
+            kwargs['format'] = cls.DEFAULT_STATUS_FORMAT
         return r'squeue' + as_cmd_args(*args, **kwargs)
 
     @classmethod
@@ -176,7 +178,17 @@ class SlurmQueue(JobQueue):
             'NODELIST(REASON)': 'node_id',
             'WORK_DIR': 'work_dir'
         })
+
+        if len(df) > 0:
+            df['job_id'] = df['job_id'].astype(str) + '_'
+            df[['job_id', 'array_idx']] = \
+                df['job_id'].str.split('_', n=1, expand=True)
+        else:
+            df['array_idx'] = []
+
         df['job_id'] = df['job_id'].astype(int)
+        df['array_idx'] = df['array_idx'] \
+            .replace('', float('nan')).map(pd.to_numeric)
 
         #node_re = re.compile(r'^(.*)\((.+)\)?$')
         #matches = [node_re.match(x) for x in df['node_id']]

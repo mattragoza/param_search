@@ -81,14 +81,19 @@ def read_stdout_file(
 
 def read_stderr_file(
     stderr_file,
+    break_pat=None,
     ignore_pat=None,
     error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$'
 ):
     print('.', end='')
+    if break_pat:
+        break_re = re.compile(break_pat)
     if ignore_pat:
         ignore_re = re.compile(ignore_pat)
     error_re = re.compile(error_pat)
     for line in open_reversed(stderr_file):
+        if break_pat and break_re.match(line):
+            break
         if not ignore_pat or not ignore_re.match(line):
             m = error_re.match(line)
             if m:
@@ -176,12 +181,14 @@ def get_job_metric(job_file, metric_pat):
     return df
 
 
-def get_job_metrics(job_files, metric_pat=r'(.+)\.(.*)metrics'):
+def get_job_metrics(job_files, metric_pat=r'(.+)\.(.*)metrics', verbose=False):
     '''
     Read the latest output for a set of job_files.
     '''
     dfs = []
     for job_file in job_files:
+        if verbose:
+            print(job_file)
         try:
             df = get_job_metric(job_file, metric_pat)
             dfs.append(df)
