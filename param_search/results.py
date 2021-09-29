@@ -82,6 +82,7 @@ def plot(
     legend_kws={},
     debug=False,
     tight=True,
+    gridspec_kw={},
 ):
     if x is None:
         x = [p for p in df.index.names if p != 'job_name']
@@ -115,7 +116,10 @@ def plot(
         legend_col = as_array_idx(legend_col, n_cols)
 
     fig, axes = plt.subplots(
-        n_rows, n_cols, figsize=(width*n_cols, height*n_rows), squeeze=False
+        n_rows, n_cols,
+        figsize=(width*n_cols, height*n_rows),
+        squeeze=False,
+        gridspec_kw=gridspec_kw,
     )
     iter_axes = iter(axes.flatten())
 
@@ -159,12 +163,15 @@ def plot(
             ):
                 handles, labels = ax.get_legend_handles_labels()
                 label_map = OrderedDict(zip(labels, handles))
+
+                legend_kws_copy = legend_kws.copy()
                 if 'title' not in legend_kws:
-                    legend_kws['title'] = hue
+                    legend_kws_copy['title'] = hue
+
                 ax.legend(
                     label_map.values(),
                     label_map.keys(),
-                    **legend_kws,
+                    **legend_kws_copy,
                 )
 
             if x_j in xlim:
