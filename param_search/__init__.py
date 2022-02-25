@@ -11,7 +11,8 @@ def submit(
     param_space,
     work_dir='.',
     use='slurm',
-    verbose=False
+    verbose=False,
+    **kwargs,
 ):
     import pandas as pd
 
@@ -27,7 +28,7 @@ def submit(
         queue = job_queues.TorqueQueue
 
     # submit jobs to queue
-    job_ids = queue.submit_job_scripts(job_files, verbose=verbose)
+    job_ids = queue.submit_job_scripts(job_files, verbose=verbose, **kwargs)
 
     # return job status data frame
     status = queue.get_job_status(job_ids)
