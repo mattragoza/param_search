@@ -55,6 +55,9 @@ class AbstractParamSpace(object):
     def __ror__(self, other):
         return other + self
 
+    def __getitem__(self, idx):
+        return list(self)[idx]
+
     def sample(self, k, replace):
         '''
         Return a random sample of k Params
@@ -132,6 +135,7 @@ class ParamSpaceProduct(AbstractParamSpace):
 class ParamSpaceSum(AbstractParamSpace):
 
     def __init__(self, space1, space2):
+        assert space1.keys() == space2.keys(), 'can only add spaces with same keys'
         self.space1 = space1
         self.space2 = space2
 
@@ -145,7 +149,7 @@ class ParamSpaceSum(AbstractParamSpace):
         return len(self.space1) + len(self.space2)
 
     def keys(self):
-        return list(self.space1.keys()) + list(self.space2.keys())
+        return list(self.space1.keys())
 
     def sample_one(self):
         n1 = len(self.space1)

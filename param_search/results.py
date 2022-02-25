@@ -69,6 +69,9 @@ def plot(
     x=None,
     y=None,
     hue=True,
+    block=None,
+    block_levels=None,
+    block_orient='h',
     height=3,
     width=3,
     n_cols=None,
@@ -97,6 +100,22 @@ def plot(
     if non_string_iterable(hue):
         hue = add_group_column(df, list(hue))
 
+    if grouped: # for each x data, group by every other x data
+        grouped_hues = dict()
+        for i, x_i in enumerate(x):
+            hue = add_group_column(df, [x_j for x_j in x if x_j != x_i])
+            grouped_hues[x_i] = hue
+
+    if block is not None:
+        if block_levels is None:
+            block_levels = df[block].unique()
+        n_blocks = len(block_levels)
+        assert block_orient in {'h', 'v'}
+        if block_orient == 'h':
+            x *= n_blocks
+        else:
+            y *= n_blocks
+
     legend_defaults = dict(
         loc='upper left',
         bbox_to_anchor=(0, -0.25),
@@ -123,12 +142,6 @@ def plot(
     )
     iter_axes = iter(axes.flatten())
 
-    if grouped: # for each x data, group by every other x data
-        grouped_hues = dict()
-        for i, x_i in enumerate(x):
-            hue = add_group_column(df, [x_j for x_j in x if x_j != x_i])
-            grouped_hues[x_i] = hue
-
     # track whether any rows/columns all have the same x/y data
     row_ys = defaultdict(set)
     col_xs = defaultdict(set)
@@ -149,9 +162,21 @@ def plot(
             if grouped:
                 hue = grouped_hues[x_j]
 
+            curr_df = df
+            if block is not None:
+                if block_orient == 'h':
+                    block_idx = col_idx // (n_cols // n_blocks)
+                    if row_idx == 0:
+                        ax.set_title(block_levels[block_idx])
+                else:
+                    block_idx = row_idx // (n_rows // n_blocks)
+                    if col_idx == 0:
+                        ax.set_title(block_levels[block_idx])
+                curr_df = df[df[block] == block_levels[block_idx]]
+
             if debug:
-                print((y_i, x_j), (row_idx, col_idx), file=sys.stderr)
-            plot_func(data=df, x=x_j, y=y_i, hue=hue, ax=ax, **plot_kws)
+                print((y_i, x_j), (row_idx, col_idx), block_idx, file=sys.stderr)
+            plot_func(data=curr_df, x=x_j, y=y_i, hue=hue, ax=ax, **plot_kws)
 
             if ax.legend_:
                 ax.legend_.remove()

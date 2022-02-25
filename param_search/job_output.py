@@ -100,6 +100,26 @@ def read_stderr_file(
                 return m.group(1)
 
 
+def parse_stderr(
+    stderr,
+    break_pat=None,
+    ignore_pat=None,
+    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$'
+):
+    if break_pat:
+        break_re = re.compile(break_pat)
+    if ignore_pat:
+        ignore_re = re.compile(ignore_pat)
+    error_re = re.compile(error_pat)
+    for line in reversed(stderr.split('\n')):
+        if break_pat and break_re.match(line):
+            break
+        if not ignore_pat or not ignore_re.match(line):
+            m = error_re.match(line)
+            if m:
+                return m.group(1)
+
+
 def get_job_error(job_file, stderr_pat):
     '''
     Parse the latest error for job_file.

@@ -2,6 +2,8 @@ import sys, os, re, shlex
 from contextlib import contextmanager
 import pandas as pd
 from subprocess import Popen, PIPE
+from multiprocessing import Pool
+from functools import partial
 
 from .common import read_file, write_file, non_string_iterable
 
@@ -38,7 +40,7 @@ def as_cmd_args(*args, **kwargs):
     return cmd
 
 
-def run_subprocess(cmd, stdin=None, work_dir=None):
+def run_subprocess(cmd, stdin=None, work_dir=None, verbose=False):
     '''
     Run cmd as a subprocess with the given stdin,
     from the given work_dir, and return (stdout, stderr).
@@ -61,6 +63,16 @@ def run_subprocess(cmd, stdin=None, work_dir=None):
         stderr = stderr.decode()
 
     return stdout, stderr
+
+
+def run_multiprocess(cmds, n_proc=None, work_dir=None, verbose=False):
+    '''
+    Run a list of cmds in parallel
+    using multiprocessing.
+    '''
+    pool = Pool(n_proc)
+    run_cmd = partial(run_subprocess, work_dir=work_dir, verbose=verbose)
+    return pool.imap(run_cmd, cmds)
 
 
 def call_subprocess(cmd, stdin=None, work_dir=None):
