@@ -1,11 +1,13 @@
-import sys, os, re, shlex
+import sys, os, re, shlex, tqdm
 from contextlib import contextmanager
+import numpy as np
 import pandas as pd
 from subprocess import Popen, PIPE
 from multiprocessing import Pool
 from functools import partial
 
 from .common import read_file, write_file, non_string_iterable
+from . import job_output
 
 verbose = False
 
@@ -46,7 +48,7 @@ def run_subprocess(cmd, stdin=None, work_dir=None, verbose=False):
     from the given work_dir, and return (stdout, stderr).
     '''
     if verbose:
-        print(cmd)
+        print(repr(work_dir), repr(cmd))
 
     if sys.platform == 'win32':
         args = cmd
@@ -65,22 +67,12 @@ def run_subprocess(cmd, stdin=None, work_dir=None, verbose=False):
     return stdout, stderr
 
 
-def run_multiprocess(cmds, n_proc=None, work_dir=None, verbose=False):
-    '''
-    Run a list of cmds in parallel
-    using multiprocessing.
-    '''
-    pool = Pool(n_proc)
-    run_cmd = partial(run_subprocess, work_dir=work_dir, verbose=verbose)
-    return pool.imap(run_cmd, cmds)
-
-
-def call_subprocess(cmd, stdin=None, work_dir=None):
+def call_subprocess(cmd, stdin=None, work_dir=None, verbose=False):
     '''
     Run cmd as a subprocess and raise an exc-
     eption if there is any stderr.
     '''
-    stdout, stderr = run_subprocess(cmd, stdin, work_dir)
+    stdout, stderr = run_subprocess(cmd, stdin, work_dir, verbose)
     if stderr:
         raise SubprocessError(stderr)
     return stdout
@@ -123,7 +115,7 @@ class JobQueue(object):
         return cls.parse_submit_out(submit_out)
 
     @classmethod
-    def submit_job_scripts(cls, job_files, *args, **kwargs):
+    def submit_job_scripts(cls, job_files, *args, verbose=False, **kwargs):
         job_ids = []
         for job_file in job_files:
             job_id = cls.submit_job_script(job_file, *args, **kwargs)
@@ -132,9 +124,33 @@ class JobQueue(object):
 
     @classmethod
     def get_job_status(cls, *args, **kwargs):
+
         cmd = cls.get_status_cmd(*args, **kwargs)
+
+        class JobStatus(pd.DataFrame):
+
+            @property
+            def cmd(self):
+                return cmd 
+
+            def status(self):
+                out = call_subprocess(self.cmd)
+                new_stat = cls.parse_status_out(out, type(self))
+                self['job_state'] = np.nan
+                self['node_id'] = np.nan
+                self['runtime'] = np.nan
+                super().update(new_stat)
+                df = self
+                work_dir = df['work_dir'].astype(str)
+                job_id = df['job_id'].astype(str)
+                stdout_file = work_dir + '/' + job_id + '.stdout'
+                stderr_file = work_dir + '/' + job_id + '.stderr'
+                df['stdout'] = stdout_file.map(job_output.read_stdout_file)
+                df['stderr'] = stderr_file.map(job_output.read_stderr_file)
+                return self
+
         out = call_subprocess(cmd)
-        return cls.parse_status_out(out)
+        return cls.parse_status_out(out, JobStatus)
 
     @classmethod
     def cancel_job(cls, *args, **kwargs):
@@ -142,19 +158,53 @@ class JobQueue(object):
         return call_subprocess(cmd)
 
 
+def run_multiprocess(cmds, work_dirs=None, verbose=False, n_proc=1):
+    '''
+    Run cmds in parallel using multiprocessing.
+    '''
+    if work_dirs is None:
+        work_dirs = [None] * len(cmds)
+
+    def run_command(args):
+        cmd, work_dir = args
+        return run_subprocess(cmd, work_dir=work_dir, verbose=verbose)
+
+    args = zip(cmds, work_dirs)
+    if n_proc == 1:
+        return (run_command(a) for a in args)
+    else:
+        pool = Pool(n_proc)
+        return pool.imap(run_command, args)
+
+
+class LocalQueue(object):
+
+    @classmethod
+    def submit_job_scripts(cls, job_files, verbose=False):
+        cmds = [f'sh {os.path.abspath(f)}' for f in job_files]
+        work_dirs = [os.path.dirname(f) for f in job_files]
+        return run_multiprocess(cmds, work_dirs, verbose=verbose), work_dirs
+
+    @classmethod
+    def get_job_status(cls, results):
+        results, work_dirs = results
+        results = tqdm.tqdm(results, total=len(work_dirs), file=sys.stdout)
+        status = pd.DataFrame(results, columns=['stdout', 'stderr'])
+        status['work_dir'] = work_dirs
+        return status
+
+
 class SlurmQueue(JobQueue):
 
-    DEFAULT_STATUS_FORMAT = r'"%i %P %j %u %t %M %l %R %Z"'
+    @classmethod
+    def get_submit_cmd(cls, job_files, *args, **kwargs):
+        return 'sbatch' + as_cmd_args(job_files, *args, **kwargs)
 
     @classmethod
-    def get_submit_cmd(cls, *args, **kwargs):
-        return 'sbatch' + as_cmd_args(*args, **kwargs)
-
-    @classmethod
-    def get_status_cmd(cls, *args, **kwargs):
+    def get_status_cmd(cls, job_ids, *args, **kwargs):
         if 'format' not in kwargs:
-            kwargs['format'] = cls.DEFAULT_STATUS_FORMAT
-        return r'squeue' + as_cmd_args(*args, **kwargs)
+            kwargs['format'] = r'"%j %i %P %t %R %M %Z"'
+        return r'squeue' + as_cmd_args(*args, **kwargs, job=job_ids)
 
     @classmethod
     def get_cancel_cmd(cls, *args, **kwargs):
@@ -168,9 +218,10 @@ class SlurmQueue(JobQueue):
         ).group(1))
 
     @classmethod
-    def parse_status_out(cls, stdout):
+    def parse_status_out(cls, stdout, job_stat):
 
-        stdout = stdout[stdout.index('JOBID'):]
+        # parse the output table
+        stdout = stdout[stdout.index('NAME'):]
         lines = stdout.split('\n')
         columns = lines[0].split(' ')
         col_data = {c: [] for c in columns}
@@ -180,17 +231,16 @@ class SlurmQueue(JobQueue):
                 col_data[columns[i]].append(field)
 
         df = pd.DataFrame(col_data).rename(columns={
+            'NAME': 'job_name',
             'JOBID': 'job_id',
             'PARTITION': 'queue',
-            'NAME': 'job_name',
-            'USER': 'user',
             'ST': 'job_state',
-            'TIME': 'runtime',
-            'TIME_LIMIT': 'walltime',
             'NODELIST(REASON)': 'node_id',
+            'TIME': 'runtime',
             'WORK_DIR': 'work_dir'
         })
 
+        # parse array idx from job id
         if len(df) > 0:
             df['job_id'] = df['job_id'].astype(str) + '_'
             df[['job_id', 'array_idx']] = \
@@ -202,6 +252,7 @@ class SlurmQueue(JobQueue):
         df['array_idx'] = df['array_idx'] \
             .replace('', float('nan')).map(pd.to_numeric)
 
+        # parse reason from node id
         #node_re = re.compile(r'^(.*)\((.+)\)?$')
         #matches = [node_re.match(x) for x in df['node_id']]
         #for i, m in enumerate(matches):
@@ -209,7 +260,7 @@ class SlurmQueue(JobQueue):
         #        print(df.iloc[i])
         #df['node_id'] = [m.group(1) for m in matches]
         #df['reason'] = [m.group(2) for m in matches]
-        return df
+        return job_stat(df)
 
 
 class TorqueQueue(JobQueue):
@@ -226,7 +277,7 @@ class TorqueQueue(JobQueue):
         return 'qstat'
 
     @classmethod
-    def parse_submit_out(cls, stdout):
+    def parse_submit_out(cls, stdout, job_stat):
         try:
             return int(re.match(
                 r'^(\d+)\.n198\.dcb\.private\.net\n$',
@@ -239,17 +290,6 @@ class TorqueQueue(JobQueue):
     @classmethod
     def parse_status_out(cls, stdout):
         raise NotImplementedError('TODO')
-
-
-class DummyQueue(JobQueue):
-
-    @classmethod
-    def get_submit_cmd(cls, job_file, array_idx=None):
-        return 'echo hello, world'
-
-    @classmethod
-    def get_status_cmd(cls, job_names):
-        return 'OK'
 
 
 def paren_split(string, sep):

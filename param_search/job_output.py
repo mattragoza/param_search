@@ -1,5 +1,6 @@
 import sys, os, re, shutil, argparse
 from collections import defaultdict
+import numpy as np
 import pandas as pd
 
 from .params import read_params
@@ -66,12 +67,16 @@ def open_reversed(fname, buf_size=8192):
 def read_stdout_file(
     stdout_file,
     ignore_pat=None,
-    output_pat=r'^(\[.+\].*)'
+    output_pat=r'^(.*)'
 ):
-    print('.', end='')
+    #print('.', end='')
+    if not os.path.isfile(stdout_file):
+        return np.nan
     if ignore_pat:
         ignore_re = re.compile(ignore_pat)
     output_re = re.compile(output_pat)
+    with open(stdout_file) as f:
+        return f.read()
     for line in open_reversed(stdout_file):
         if not ignore_pat or not ignore_re.match(line):
             m = output_re.match(line)
@@ -85,11 +90,15 @@ def read_stderr_file(
     ignore_pat=None,
     error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$'
 ):
-    print('.', end='')
+    #print('.', end='')
+    if not os.path.isfile(stderr_file):
+        return np.nan
     if break_pat:
         break_re = re.compile(break_pat)
     if ignore_pat:
         ignore_re = re.compile(ignore_pat)
+    with open(stderr_file) as f:
+        return f.read()
     error_re = re.compile(error_pat)
     for line in open_reversed(stderr_file):
         if break_pat and break_re.match(line):
@@ -118,23 +127,6 @@ def parse_stderr(
             m = error_re.match(line)
             if m:
                 return m.group(1)
-
-
-def get_job_error(job_file, stderr_pat):
-    '''
-    Parse the latest error for job_file.
-    '''
-    job_dir = os.path.dirname(job_file)
-    stderr_files = []
-    for m in match_files_in_dir(job_dir, stderr_pat):
-        stderr_file = m.group(0)
-        job_id = int(m.group(1))
-        stderr_files.append((job_id, stderr_file))
-
-    job_id, stderr_file = sorted(stderr_files)[-1]
-    stderr_file = os.path.join(job_dir, stderr_file)
-    error = read_stderr_file(stderr_file)
-    return error
 
 
 def get_job_errors(job_files, stderr_pat=r'(\d+).stderr'):
@@ -178,44 +170,48 @@ def get_job_outputs(job_files, stdout_pat=r'(\d+).stdout'):
     return outputs
 
 
-def get_job_metric(job_file, metric_pat):
+def get_metrics_from_dir(work_dir, metric_pat):
     '''
-    Read the latest metrics for job_file.
+    Read the metrics files from a
+    given working directory.
+
+    Args:
+        work_dir: Directory containing metrics files.
+        metric_pat: Regex for detecting metrics file.
+    Returns:
+        pandas.DataFrame of metrics.
     '''
-    job_dir = os.path.dirname(job_file)
-    job_name = os.path.basename(job_dir)
+    metrics = []
+    for m in match_files_in_dir(work_dir, metric_pat):
+        metric_file = os.path.join(work_dir, m.group(0))
+        metrics.append(pd.read_csv(metric_file, sep=' '))
 
-    dfs = []
-    for m in match_files_in_dir(job_dir, metric_pat):
-        metric_file = os.path.join(job_dir, m.group(0))
-        df = pd.read_csv(metric_file, sep=' ')
-        dfs.append(df)
-
-    df = pd.concat(dfs)
-
-    params = read_params(job_file, line_start='# ')
-    for param, value in params.items():
-        assert param not in df, param + ' is both a param and a metric'
-        df[param] = value
-
-    return df
+    return pd.concat(metrics)
 
 
-def get_job_metrics(job_files, metric_pat=r'(.+)\.(.*)metrics', verbose=False):
+def get_job_metrics(jobs, metric_pat=r'(.+)\.(.*)metrics', verbose=False):
     '''
-    Read the latest output for a set of job_files.
+    Read metrics files for a set of jobs.
+
+    Args:
+        jobs: pandas.DataFrame of jobs.
+        metric_pat: Regex for detecting metrics files.
+        verbose: Print verbose output.
+    Returns:
+        pd.DataFrame from merging jobs with metrics.
     '''
-    dfs = []
-    for job_file in job_files:
+    metrics = []
+    for i, job in jobs.iterrows():
         if verbose:
-            print(job_file)
+            print(job.job_name)
         try:
-            df = get_job_metric(job_file, metric_pat)
-            dfs.append(df)
+            job_metrics = get_metrics_from_dir(job.work_dir, metric_pat)
+            job_metrics['job_name'] = job.job_name
+            metrics.append(job_metrics)
         except ValueError as e:
-            print(job_file, e, file=sys.stderr)
+            print(job.job_name, e, file=sys.stderr)
 
-    return pd.concat(dfs)
+    return jobs.merge(pd.concat(metrics), on='job_name')
 
 
 def print_array_indices(idx_set):
