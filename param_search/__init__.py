@@ -12,6 +12,7 @@ def submit(
     work_dir='.',
     use='slurm',
     verbose=False,
+    merge=True,
     **kwargs,
 ):
     import pandas as pd
@@ -30,12 +31,17 @@ def submit(
     # submit jobs to queue
     job_ids = queue.submit_job_scripts(job_files, verbose=verbose, **kwargs)
 
+    if verbose:
+        print(job_ids)
+
     # return job status data frame
     status = queue.get_job_status(job_ids)
 
-    params = pd.DataFrame(params)
-
-    if use == 'local':
-        return pd.concat([params, status], axis=1)
-    else:
-        return type(status)(params.merge(status, on='job_name'))
+    if merge: # combine job params and job status
+        params = pd.DataFrame(params)
+        if use == 'local':
+            return pd.concat([params, status], axis=1)
+        else:
+            return type(status)(params.merge(status, on='job_name'))
+    else: # just return status
+        return status

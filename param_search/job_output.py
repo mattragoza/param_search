@@ -49,16 +49,22 @@ def open_reversed(fname, buf_size=8192):
 def read_stdout_file(
     stdout_file,
     ignore_pat=None,
-    output_pat=r'^(.*)'
+    output_pat=r'^(.*)',
+    verbose=False,
 ):
-    #print('.', end='')
-    if not os.path.isfile(stdout_file):
+    try:
+        with open(stdout_file) as f:
+            return f.read()
+    except Exception as e:
+        if verbose:
+            print(stdout_file, e, file=sys.stderr)
         return np.nan
+
+    # fancier reversed parsing and filtering
     if ignore_pat:
         ignore_re = re.compile(ignore_pat)
     output_re = re.compile(output_pat)
-    with open(stdout_file) as f:
-        return f.read()
+
     for line in open_reversed(stdout_file):
         if not ignore_pat or not ignore_re.match(line):
             m = output_re.match(line)
@@ -70,11 +76,18 @@ def read_stderr_file(
     stderr_file,
     break_pat=None,
     ignore_pat=None,
-    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$'
+    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$',
+    verbose=False,
 ):
-    #print('.', end='')
-    if not os.path.isfile(stderr_file):
+    try:
+        with open(stderr_file) as f:
+            return f.read()
+    except Exception as e:
+        if verbose:
+            print(stderr_file, e, file=sys.stderr)
         return np.nan
+
+    # fancier reversed parsing
     if break_pat:
         break_re = re.compile(break_pat)
     if ignore_pat:

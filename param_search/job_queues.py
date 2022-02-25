@@ -117,7 +117,7 @@ class JobQueue(object):
     @classmethod
     def submit_job_scripts(cls, job_files, *args, verbose=False, **kwargs):
         job_ids = []
-        for job_file in job_files:
+        for job_file in tqdm.tqdm(job_files, file=sys.stdout):
             job_id = cls.submit_job_script(job_file, *args, **kwargs)
             job_ids.append(job_id)
         return job_ids
@@ -133,9 +133,11 @@ class JobQueue(object):
             def cmd(self):
                 return cmd 
 
-            def status(self):
+            def status(self, verbose=False):
                 out = call_subprocess(self.cmd)
                 new_stat = cls.parse_status_out(out, type(self))
+
+                # merge new status with current status
                 self['job_state'] = np.nan
                 self['node_id'] = np.nan
                 self['runtime'] = np.nan
@@ -145,8 +147,12 @@ class JobQueue(object):
                 job_id = df['job_id'].astype(str)
                 stdout_file = work_dir + '/' + job_id + '.stdout'
                 stderr_file = work_dir + '/' + job_id + '.stderr'
-                df['stdout'] = stdout_file.map(job_output.read_stdout_file)
-                df['stderr'] = stderr_file.map(job_output.read_stderr_file)
+                df['stdout'] = stdout_file.apply(
+                    job_output.read_stdout_file, verbose=verbose
+                )
+                df['stderr'] = stderr_file.apply(
+                    job_output.read_stderr_file, verbose=verbose
+                )
                 return self
 
         out = call_subprocess(cmd)
@@ -202,11 +208,16 @@ class SlurmQueue(JobQueue):
     def get_submit_cmd(cls, job_files, *args, **kwargs):
         return 'sbatch' + as_cmd_args(job_files, *args, **kwargs)
 
-    @classmethod
+    @classmethod 
     def get_status_cmd(cls, job_ids, *args, **kwargs):
-        if 'format' not in kwargs:
-            kwargs['format'] = r'"%j %i %P %t %R %M %Z"'
-        return r'squeue' + as_cmd_args(*args, **kwargs, job=job_ids)
+
+        # slurm throws an error if you try to check the
+        #   status of a single job that's not in the queue
+        if len(job_ids) == 1:
+            job_ids.append(1)
+
+        return r'squeue --format="%j %i %P %T %R %M %Z"' + \
+            as_cmd_args(*args, **kwargs, job=job_ids)
 
     @classmethod
     def get_cancel_cmd(cls, *args, **kwargs):
@@ -235,8 +246,8 @@ class SlurmQueue(JobQueue):
         df = pd.DataFrame(col_data).rename(columns={
             'NAME': 'job_name',
             'JOBID': 'job_id',
-            'PARTITION': 'queue',
-            'ST': 'job_state',
+            'PARTITION': 'partition',
+            'STATE': 'job_state',
             'NODELIST(REASON)': 'node_id',
             'TIME': 'runtime',
             'WORK_DIR': 'work_dir'
