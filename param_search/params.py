@@ -58,7 +58,7 @@ class AbstractParamSpace(object):
     def __getitem__(self, idx):
         return list(self)[idx]
 
-    def sample(self, k, replace):
+    def sample(self, k, replace=False):
         '''
         Return a random sample of k Params
         from the parameter space, with or

@@ -181,7 +181,7 @@ class LocalQueue(object):
 
     @classmethod
     def submit_job_scripts(cls, job_files, verbose=False):
-        cmds = [f'sh {os.path.abspath(f)}' for f in job_files]
+        cmds = [f'bash {os.path.abspath(f)}' for f in job_files]
         work_dirs = [os.path.dirname(f) for f in job_files]
         return run_multiprocess(cmds, work_dirs, verbose=verbose), work_dirs
 
