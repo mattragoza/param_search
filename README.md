@@ -1,8 +1,8 @@
-## `param_search`: Hyperparameter search with cluster computing
+# `param_search`: Hyperparameter search with cluster computing
 
 This Python package makes it easy to launch lots of jobs with different parameters to be evaluated on a computer cluster. It also has features to monitor the status of running or completed jobs, aggregate their output, and create visualizations.
 
-### Dependencies
+## Dependencies
 
 - numpy
 - scipy
@@ -10,7 +10,7 @@ This Python package makes it easy to launch lots of jobs with different paramete
 - parse
 - tqdm
 
-### Basic usage
+## Basic usage
 
 Here is how you can launch an experiment on a Slurm cluster in about 10 lines of code:
 
@@ -50,7 +50,7 @@ fig = ps.plot(metrics, x=['term1', 'term2'], y=['product', 'quotient'])
 
 ```
 
-### Jobs templates and name formats
+## Jobs templates and name formats
 
 These are simple python formatting strings. When jobs are submitted, the templates and name formats are filled in with the parameter settings:
 
@@ -60,7 +60,7 @@ job_name = name.format(**job_params, hash=job_hash)
 job_content = template.format(**job_params, job_name=job_name, hash=job_hash)
 ```
 
-### Parameter spaces
+## Parameter spaces
 
 A parameter space is a set of parameters and ranges of values they can take on. They are a sublcass of `collections.OrderedDict` where keys represent names of parameters and values are the ranges of the parameter values.
 
@@ -107,7 +107,7 @@ param_space_abc = param_space_ab * param_space_c
 assert len(param_space_abc) == 60
 ```
 
-### Submitting jobs to a queue
+## Submitting jobs to a queue
 
 The following queues are supported: `LocalQueue`, `SlurmQueue`, and `TorqueQueue`.
 
