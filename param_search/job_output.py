@@ -7,24 +7,6 @@ from .params import read_params
 from .job_queues import SlurmQueue
 
 
-def as_compiled_re(obj):
-    '''
-    Compile obj as regex pattern if needed.
-    '''
-    return obj if hasattr(obj, 'match') else re.compile(obj)
-
-
-def match_files_in_dir(dir, pat):
-    '''
-    Iterate through files in dir that match pat.
-    '''
-    pat = as_compiled_re(pat)
-    for file in os.listdir(dir):
-        m = pat.match(file)
-        if m is not None:
-            yield m
-
-
 def open_reversed(fname, buf_size=8192):
     '''
     Iterate over lines of fname in reverse
@@ -170,7 +152,29 @@ def get_job_outputs(job_files, stdout_pat=r'(\d+).stdout'):
     return outputs
 
 
-def get_metrics_from_dir(work_dir, metric_pat):
+def as_compiled_re(obj):
+    '''
+    Compile obj as regex pattern if needed.
+    '''
+    return obj if hasattr(obj, 'match') else re.compile(obj)
+
+
+def match_files_in_dir(dir, pat, verbose=False):
+    '''
+    Iterate through files in dir that match pat.
+    '''
+    if verbose:
+        print(os.path.join(dir, pat))
+    pat = as_compiled_re(pat)
+    for file in os.listdir(dir):
+        m = pat.match(file)
+        if m is not None:
+            yield m
+
+
+def get_metrics_from_dir(
+    work_dir, metric_pat, verbose=False, sep=' ', **kwargs
+):
     '''
     Read the metrics files from a
     given working directory.
@@ -178,18 +182,21 @@ def get_metrics_from_dir(work_dir, metric_pat):
     Args:
         work_dir: Directory containing metrics files.
         metric_pat: Regex for detecting metrics file.
+        **kwargs: Args passed to pandas.read_csv().
     Returns:
         pandas.DataFrame of metrics.
     '''
     metrics = []
-    for m in match_files_in_dir(work_dir, metric_pat):
+    for m in match_files_in_dir(work_dir, metric_pat, verbose):
         metric_file = os.path.join(work_dir, m.group(0))
-        metrics.append(pd.read_csv(metric_file, sep=' '))
+        metrics.append(pd.read_csv(metric_file, sep=sep, **kwargs))
 
     return pd.concat(metrics)
 
 
-def get_job_metrics(jobs, metric_pat=r'(.+)\.(.*)metrics', verbose=False):
+def get_job_metrics(
+    jobs, metric_pat=r'(.+)\.(csv|(.*)metrics)', verbose=False, **kwargs
+):
     '''
     Read metrics files for a set of jobs.
 
@@ -197,15 +204,16 @@ def get_job_metrics(jobs, metric_pat=r'(.+)\.(.*)metrics', verbose=False):
         jobs: pandas.DataFrame of jobs.
         metric_pat: Regex for detecting metrics files.
         verbose: Print verbose output.
+        **kwargs: Args passed to pandas.read_csv().
     Returns:
         pd.DataFrame from merging jobs with metrics.
     '''
     metrics = []
     for i, job in jobs.iterrows():
-        if verbose:
-            print(job.job_name)
         try:
-            job_metrics = get_metrics_from_dir(job.work_dir, metric_pat)
+            job_metrics = get_metrics_from_dir(
+                job.work_dir, metric_pat, verbose, **kwargs
+            )
             job_metrics['job_name'] = job.job_name
             metrics.append(job_metrics)
         except ValueError as e:
