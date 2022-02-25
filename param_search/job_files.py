@@ -6,10 +6,10 @@ from .common import read_file, write_file
 
 
 def setup_job_files(
-    expt_dir,
+    template,
     name_format,
-    template_file,
     param_space,
+    work_dir,
     **kwargs
 ):
     '''
@@ -18,9 +18,7 @@ def setup_job_files(
     template_file with the params. Name the created dirs
     by formatting name_format with the params.
     '''
-    template = read_file(template_file)
-    job_base = os.path.basename(template_file)
-
+    job_base = 'job.sh'
     job_files = []
     for job_params in param_space:
 
@@ -30,7 +28,7 @@ def setup_job_files(
             hash=hash(job_params), **job_params
         )
         job_params['job_name'] = job_name
-        job_dir = os.path.join(expt_dir, job_name)
+        job_dir = os.path.join(work_dir, job_name)
 
         if not os.path.isdir(job_dir):
             os.makedirs(job_dir)
