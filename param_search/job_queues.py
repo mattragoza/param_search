@@ -144,7 +144,7 @@ class JobQueue(object):
                 super().update(new_stat)
                 df = self
                 work_dir = df['work_dir'].astype(str)
-                job_id = df['job_id'].astype(str)
+                job_id = df['job_id'].astype(int).astype(str)
                 stdout_file = work_dir + '/' + job_id + '.stdout'
                 stderr_file = work_dir + '/' + job_id + '.stderr'
                 df['stdout'] = stdout_file.apply(
