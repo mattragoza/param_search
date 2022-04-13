@@ -25,7 +25,8 @@ def plot(
     df,
     x=None,
     y=None,
-    hue=True,
+    hue=None,
+    grouped=True,
     block=None,
     block_levels=None,
     block_orient='h',
@@ -44,6 +45,8 @@ def plot(
     tight=True,
     gridspec_kw={},
 ):
+    df = df.copy()
+
     if x is None:
         x = [p for p in df.index.names if p != 'job_name']
     x = as_non_string_iterable(x)
@@ -52,16 +55,20 @@ def plot(
         y = df.columns
     y = as_non_string_iterable(y)
 
-    grouped = (hue is True)
+    if hue is not None: # hue overrides grouped
+        grouped = None
 
     if non_string_iterable(hue):
         hue = add_group_column(df, list(hue))
 
-    if grouped: # for each x data, group by every other x data
+    if grouped is True:
+        grouped = x
+
+    if grouped: # for each g var, group by every other g var
         grouped_hues = dict()
-        for i, x_i in enumerate(x):
-            hue = add_group_column(df, [x_j for x_j in x if x_j != x_i])
-            grouped_hues[x_i] = hue
+        for i, g_i in enumerate(grouped):
+            hue = add_group_column(df, [g_j for g_j in grouped if g_j != g_i])
+            grouped_hues[g_i] = hue
 
     if block is not None:
         if block_levels is None:
