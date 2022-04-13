@@ -1,5 +1,4 @@
 import os
-from collections import Iterable
 
 
 def read_file(file_):
@@ -21,7 +20,7 @@ def non_string_iterable(obj):
     '''
     Check whether obj is a non-string iterable.
     '''
-    return not isinstance(obj, str) and isinstance(obj, Iterable)
+    return not isinstance(obj, str) and hasattr(obj, '__iter__')
 
 
 def as_non_string_iterable(obj):

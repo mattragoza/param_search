@@ -99,7 +99,7 @@ class ParamSpaceScalar(AbstractParamSpace):
         return self.const * len(self.space)
 
     def keys(self):
-        return self.space.keys()
+        return list(self.space.keys())
 
     def sample_one(self):
         return self.space.sample_one()
@@ -149,7 +149,7 @@ class ParamSpaceSum(AbstractParamSpace):
         return len(self.space1) + len(self.space2)
 
     def keys(self):
-        return list(self.space1.keys())
+        return self.space1.keys()
 
     def sample_one(self):
         n1 = len(self.space1)
@@ -191,6 +191,9 @@ class ParamSpace(AbstractParamSpace, OrderedDict):
         for v in self.values():
             n *= len(v)
         return n
+
+    def keys(self):
+        return list(super().keys())
 
     def sample_one(self):
         return self.Params(

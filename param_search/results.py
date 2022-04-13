@@ -244,6 +244,57 @@ def as_array_idx(i, n):
     return n + i if i < 0 else i
 
 
+def get_palette(
+    n_hues,
+    n_shades=1,
+    n_repeat=1,
+    hues=None,
+    min_val=0.0,
+    max_val=1.0,
+    n_samples=100,
+    mode=None
+):
+    assert 0 <= min_val <= 1.0
+    assert 0 <= max_val <= 1.0
+    
+    if hues is None:
+        if n_hues <= 9:
+            mode = mode or 'muted'
+            hues = sns.color_palette(mode)[:n_hues]
+        else:
+            mode = mode or 'husl'
+            hues = sns.color_palette(mode, n_hues)
+            
+    if not isinstance(n_shades, list):
+        n_shades = [n_shades] * len(hues)
+
+    colors = []
+    for hue, n_shades in zip(hues, n_shades):
+        
+        # get n_samples different shades of hue
+        shades = (
+            sns.dark_palette(hue, n_colors=n_samples//2) + \
+            sns.light_palette(hue, n_colors=n_samples//2, reverse=True)
+        )
+        # limit shade range with min_val and max_val
+        min_idx = int(min_val * len(shades))
+        max_idx = int(max_val * len(shades))
+        shades = shades[min_idx:max_idx]
+        
+        # get n_shades evenly spaced shades in that range, avoiding endpoints
+        vals = np.linspace(0, 1, n_shades + 2)
+        idxs = [int(v * (len(shades) - 1)) for v in vals]
+        shades = [shades[i] for i in idxs[1:-1]]
+        
+        # repeat each shade n_repeat times
+        shades = sorted(n_repeat * shades, key=lambda x: sum(x))
+
+        colors.extend(shades)
+        
+    return sns.color_palette(colors)
+
+
+
 def annotate_pearson_r(x, y, **kwargs):
     print(kwargs)
     nan = np.isnan(x) | np.isnan(y)
