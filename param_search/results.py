@@ -75,7 +75,7 @@ def plot(
 
     legend_defaults = dict(
         loc='upper left',
-        bbox_to_anchor=(0, -0.25),
+        bbox_to_anchor=(0, -0.2),
         frameon=False,
     )
     legend_defaults.update(legend_kws)
@@ -132,7 +132,7 @@ def plot(
                 curr_df = df[df[block] == block_levels[block_idx]]
 
             if debug:
-                print((y_i, x_j), (row_idx, col_idx), block_idx, file=sys.stderr)
+                print((y_i, x_j), (row_idx, col_idx), file=sys.stderr)
             plot_func(data=curr_df, x=x_j, y=y_i, hue=hue, ax=ax, **plot_kws)
 
             if ax.legend_:

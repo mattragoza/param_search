@@ -85,6 +85,10 @@ class SubprocessError(RuntimeError):
     pass
 
 
+class JobStatus(pd.DataFrame):
+    pass
+
+
 class JobQueue(object):
     '''
     An abstract interface for communicating with a job
@@ -127,7 +131,7 @@ class JobQueue(object):
 
         cmd = cls.get_status_cmd(*args, **kwargs)
 
-        class JobStatus(pd.DataFrame):
+        class _JobStatus(JobStatus):
 
             @property
             def cmd(self):
@@ -156,7 +160,7 @@ class JobQueue(object):
                 return self
 
         out = call_subprocess(cmd)
-        return cls.parse_status_out(out, JobStatus)
+        return cls.parse_status_out(out, _JobStatus)
 
     @classmethod
     def cancel_job(cls, *args, **kwargs):
