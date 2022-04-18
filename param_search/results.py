@@ -43,7 +43,7 @@ def plot(
     legend_kws={},
     debug=False,
     tight=True,
-    gridspec_kw={},
+    gridspec_kws={},
 ):
     df = df.copy()
 
@@ -102,7 +102,7 @@ def plot(
         n_rows, n_cols,
         figsize=(width*n_cols, height*n_rows),
         squeeze=False,
-        gridspec_kw=gridspec_kw,
+        gridspec_kw=gridspec_kws,
     )
     iter_axes = iter(axes.flatten())
 
@@ -252,7 +252,8 @@ def get_palette(
     min_val=0.0,
     max_val=1.0,
     n_samples=100,
-    mode=None
+    mode=None,
+    reverse=False,
 ):
     assert 0 <= min_val <= 1.0
     assert 0 <= max_val <= 1.0
@@ -276,11 +277,12 @@ def get_palette(
             sns.dark_palette(hue, n_colors=n_samples//2) + \
             sns.light_palette(hue, n_colors=n_samples//2, reverse=True)
         )
+
         # limit shade range with min_val and max_val
         min_idx = int(min_val * len(shades))
         max_idx = int(max_val * len(shades))
         shades = shades[min_idx:max_idx]
-        
+  
         # get n_shades evenly spaced shades in that range, avoiding endpoints
         vals = np.linspace(0, 1, n_shades + 2)
         idxs = [int(v * (len(shades) - 1)) for v in vals]
@@ -288,6 +290,9 @@ def get_palette(
         
         # repeat each shade n_repeat times
         shades = sorted(n_repeat * shades, key=lambda x: sum(x))
+
+        if reverse: # reverse the shading order
+            shades = shades[::-1]
 
         colors.extend(shades)
         
