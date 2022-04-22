@@ -39,7 +39,7 @@ def submit(
     if verbose:
         print(job_ids)
 
-    # return job status data frame
+    # get initial job status data frame
     status = queue(use).get_job_status(job_ids)
 
     if merge: # combine job params and job status
@@ -48,6 +48,36 @@ def submit(
             return pd.concat([params, status], axis=1)
         else:
             return type(status)(params.merge(status, on='job_name'))
-    else: # just return status
+
+    else: # just return job status
         return status
 
+
+def status(jobs, use='slurm', verbose=False):
+    from numpy import nan
+    jobs = jobs.reset_index()
+    
+    # get new job status data frame from queue
+    new_status = queue(use).get_job_status(jobs['job_id'])
+    new_status = new_status.set_index('job_id')
+
+    # merge new status with old status
+    status = jobs.set_index('job_id')
+    status['job_state'] = nan
+    status['node_id'] = nan
+    status['runtime'] = nan
+    status.update(new_status)
+
+    # parse additional status from output files
+    work_dir = status['work_dir'].astype(str)
+    job_id = status.index.astype(int).astype(str)
+    stdout_file = work_dir + '/' + job_id + '.stdout'
+    stderr_file = work_dir + '/' + job_id + '.stderr'
+    status['stdout'] = stdout_file.apply(
+        job_output.read_stdout_file, verbose=verbose
+    )
+    status['stderr'] = stderr_file.apply(
+        job_output.read_stderr_file, verbose=verbose
+    )
+
+    return status

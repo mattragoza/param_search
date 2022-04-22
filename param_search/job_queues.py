@@ -85,10 +85,6 @@ class SubprocessError(RuntimeError):
     pass
 
 
-class JobStatus(pd.DataFrame):
-    pass
-
-
 class JobQueue(object):
     '''
     An abstract interface for communicating with a job
@@ -128,39 +124,9 @@ class JobQueue(object):
 
     @classmethod
     def get_job_status(cls, *args, **kwargs):
-
         cmd = cls.get_status_cmd(*args, **kwargs)
-
-        class _JobStatus(JobStatus):
-
-            @property
-            def cmd(self):
-                return cmd 
-
-            def status(self, verbose=False):
-                out = call_subprocess(self.cmd)
-                new_stat = cls.parse_status_out(out, type(self))
-
-                # merge new status with current status
-                self['job_state'] = np.nan
-                self['node_id'] = np.nan
-                self['runtime'] = np.nan
-                super().update(new_stat)
-                df = self
-                work_dir = df['work_dir'].astype(str)
-                job_id = df['job_id'].astype(int).astype(str)
-                stdout_file = work_dir + '/' + job_id + '.stdout'
-                stderr_file = work_dir + '/' + job_id + '.stderr'
-                df['stdout'] = stdout_file.apply(
-                    job_output.read_stdout_file, verbose=verbose
-                )
-                df['stderr'] = stderr_file.apply(
-                    job_output.read_stderr_file, verbose=verbose
-                )
-                return self
-
         out = call_subprocess(cmd)
-        return cls.parse_status_out(out, _JobStatus)
+        return cls.parse_status_out(out)
 
     @classmethod
     def cancel_job(cls, *args, **kwargs):
@@ -235,7 +201,7 @@ class SlurmQueue(JobQueue):
         ).group(1))
 
     @classmethod
-    def parse_status_out(cls, stdout, job_stat):
+    def parse_status_out(cls, stdout):
 
         # parse the output table
         stdout = stdout[stdout.index('NAME'):]
@@ -277,7 +243,7 @@ class SlurmQueue(JobQueue):
         #        print(df.iloc[i])
         #df['node_id'] = [m.group(1) for m in matches]
         #df['reason'] = [m.group(2) for m in matches]
-        return job_stat(df)
+        return df
 
 
 class TorqueQueue(JobQueue):
