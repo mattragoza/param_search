@@ -274,7 +274,7 @@ def parse_array_indices_str(s):
     return set(indices)
 
 
-def find_job_ids(job_dir, stderr_pat):
+def find_job_ids(job_dir, stderr_pat=r'(\d+).stderr'):
     '''
     Find job ids that have been submitted by
     parsing stderr file names in job_dir.
@@ -289,7 +289,14 @@ def find_job_ids(job_dir, stderr_pat):
             job_id = int(m.group(1))
             job_ids.append(job_id)
 
-    return job_ids
+    return sorted(job_ids)
+
+
+def find_job_id(job_dir, stderr_pat=r'(\d+).stderr'):
+    '''
+    Find the latest job id in job_dir.
+    '''
+    return max(find_job_ids(job_dir, stderr_pat))
 
 
 def read_job_output(job_dir, output_pat):
@@ -402,146 +409,3 @@ def print_errors_for_array_indices(job_dir, stderr_pat, indices):
         stderr_file = os.path.join(job_dir, stderr_file)
         error = read_stderr_file(stderr_file)
         print(stderr_file + '\t' + str(error))
-
-
-
-def parse_args(argv):
-    parser = argparse.ArgumentParser()
-    parser.add_argument('job_scripts', nargs='+')
-    parser.add_argument('--job_type')
-    parser.add_argument('--array_job', default=False, action='store_true')
-    parser.add_argument('--submitted', default=None)
-    parser.add_argument('--copy_back', '-c', default=False, action='store_true')
-    parser.add_argument('--print_indices', '-i', default=False, action='store_true')
-    parser.add_argument('--print_errors', '-e', default=False, action='store_true')
-    parser.add_argument('--resub_errors', '-r', default=False, action='store_true')
-    parser.add_argument('--output_file', '-o')
-    return parser.parse_args(argv)
-
-
-def main(argv):
-    args = parse_args(argv)
-
-    all_job_dfs = []
-    for job_script in args.job_scripts:
-
-        assert os.path.isfile(job_script), 'file ' + job_script + ' does not exist'
-
-        if args.job_type is None: # infer from file name
-            if 'fit' in job_script:
-                args.job_type = 'fit'
-            elif 'train' in job_script:
-                args.job_type = 'train'
-
-        # determine relevant files based on job type
-        if args.job_type == 'train':
-            job_script_pat = re.compile(r'(.*)_train.sh')
-            output_ext = 'training_output'
-            copy_back_exts = [
-                'model', 'solver','caffemodel', 'solverstate', 'training_output', 'png', 'pdf'
-            ]
-        elif args.job_type == 'fit':
-            job_script_pat = re.compile(r'(.*)_fit.sh')
-            output_ext = 'gen_metrics'
-            copy_back_exts = [
-                'types', 'model', 'caffemodel', 'dx', 'sdf', 'channels', 'latent', 'pymol', 'gen_metrics'
-            ]
-
-        # for array jobs, get output for any array indices present
-        if args.array_job:
-            stderr_pat = re.compile(r'slurm-(\d+)_(\d+)\.err$')
-            output_pat = re.compile(r'(.*)_(\d+)\.' + output_ext + '$')
-            copy_back_pat = re.compile(r'(.*)_(\d+)\.' + '({})$'.format('|'.join(copy_back_exts)))
-        else:
-            stderr_pat = re.compile(r'slurm-(\d+)\.err$')
-            output_pat = re.compile(r'(.*)\.' + output_ext + '$')
-            copy_back_pat = re.compile(r'(.*)\.' + '({})$'.format('|'.join(copy_back_exts)))
-
-        print(job_script)
-        job_dir = os.path.dirname(job_script)
-
-        if args.array_job:
-
-            if args.submitted is not None:
-                submitted = parse_array_indices_str(args.submitted)
-                job_ids = find_job_ids(job_dir, stderr_pat)
-            else:
-                submitted, job_ids = find_submitted_array_indices(job_dir, stderr_pat)
-            n_submitted = len(submitted)
-
-            if n_submitted == 0:
-                print('none submitted')
-                continue
-
-            completed, job_dfs = find_completed_array_indices(job_dir, output_pat, read=args.output_file)
-            n_completed = len(completed)
-
-            if args.output_file:
-                all_job_dfs.extend(job_dfs)
-
-            incomplete = submitted - completed
-            n_incomplete = len(incomplete)
-
-            if args.print_indices:
-                print('n_submitted = {} ({})'.format(n_submitted, get_array_indices_string(submitted)))
-                print('n_completed = {} ({})'.format(n_completed, get_array_indices_string(completed)))
-                print('n_incomplete = {} ({})'.format(n_incomplete, get_array_indices_string(incomplete)))
-            else:
-                print('n_submitted = {}'.format(n_submitted))
-                print('n_completed = {}'.format(n_completed))
-                print('n_incomplete = {}'.format(n_incomplete))
-
-            if args.print_errors:
-                print_errors_for_array_indices(job_dir, stderr_pat, indices=incomplete)
-
-            if args.copy_back:
-
-                last_job_id = sorted(job_ids)[-1]
-                scr_dir = os.path.join(job_dir, str(last_job_id))
-
-                copied = copy_back_from_scr_dir(job_dir, scr_dir, copy_back_pat)
-                n_copied = len(copied)
-                print('copied {} files from {}'.format(n_copied, last_job_id))
-
-            if args.resub_errors: # resubmit incomplete jobs
-
-                for m in match_files_in_dir(job_dir, job_script_pat):
-                    job_script = os.path.join(job_dir, m.group(0))
-                    SlurmQueue.submit_job(
-                        job_script,
-                        work_dir=job_dir,
-                        array_idx=get_array_indices_string(incomplete)
-                    )
-
-        else:
-            job_ids = find_job_ids(job_dir, stderr_pat)
-
-            if args.output_file:
-                job_dfs = read_job_output(job_dir, output_pat)
-                all_job_dfs.extend(job_dfs)
-
-            if args.print_errors:
-                print_last_error(job_dir, stderr_pat)
-
-            if args.copy_back:
-
-                for last_job_id in sorted(job_ids):
-                    scr_dir = os.path.join(job_dir, str(last_job_id))
-                    copied = copy_back_from_scr_dir(job_dir, scr_dir, copy_back_pat)
-                    n_copied = len(copied)
-                    print('copied {} files from {}'.format(n_copied, last_job_id))
-
-    if args.output_file:
-        if all_job_dfs:
-            job_df = pd.concat(all_job_dfs)
-            pd.set_option('display.max_columns', 100)
-            print(job_df.groupby('job_name').mean())
-            job_df.to_csv(args.output_file, sep=' ')
-            print('concatenated metrics to {}'.format(args.output_file))
-        else:
-            print('nothing to concatenate')
-
-
-if __name__ == '__main__':
-    main(sys.argv[1:])
-
