@@ -41,12 +41,13 @@ def plot(
     legend_row=-1,
     legend_col=None,
     legend_kws={},
-    debug=False,
+    verbose=False,
     tight=True,
     gridspec_kws={},
 ):
     df = df.copy()
 
+    # establish variables
     if x is None:
         x = [p for p in df.index.names if p != 'job_name']
     x = as_non_string_iterable(x)
@@ -55,20 +56,24 @@ def plot(
         y = df.columns
     y = as_non_string_iterable(y)
 
-    if hue is not None: # hue overrides grouped
-        grouped = None
+    if grouped: # for each x var, group by every other hue var
+        if hue is None:
+            hue = x
+        hue = as_non_string_iterable(hue)
+        grouped_hues = dict()
+        for i, x_i in enumerate(x):
+            grouped_hues[x_i] = add_group_column(
+                df, [h_j for h_j in hue if h_j != x_i]
+            )
 
-    if non_string_iterable(hue):
+    elif non_string_iterable(hue):
         hue = add_group_column(df, list(hue))
 
-    if grouped is True:
-        grouped = x
-
-    if grouped: # for each g var, group by every other g var
-        grouped_hues = dict()
-        for i, g_i in enumerate(grouped):
-            hue = add_group_column(df, [g_j for g_j in grouped if g_j != g_i])
-            grouped_hues[g_i] = hue
+    if verbose:
+        print(f'x = {x}')
+        print(f'y = {y}')
+        print(f'hue = {hue}')
+        print(f'grouped = {grouped}')
 
     if block is not None:
         if block_levels is None:
@@ -138,8 +143,9 @@ def plot(
                         ax.set_title(block_levels[block_idx])
                 curr_df = df[df[block] == block_levels[block_idx]]
 
-            if debug:
-                print((y_i, x_j), (row_idx, col_idx), file=sys.stderr)
+            if verbose:
+                print((y_i, x_j), (row_idx, col_idx))
+
             plot_func(data=curr_df, x=x_j, y=y_i, hue=hue, ax=ax, **plot_kws)
 
             if ax.legend_:
