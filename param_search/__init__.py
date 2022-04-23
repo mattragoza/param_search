@@ -1,7 +1,8 @@
 from . import params, job_files, job_output, job_queues, results
-from .job_files import setup_job_files as setup
-from .job_output import get_job_metrics as metrics
+
 from .params import ParamSpace
+from .job_files import setup_job_files as setup
+from .job_output import read_job_metrics as metrics
 from .results import plot
 
 
@@ -22,7 +23,6 @@ def submit(
     use='slurm',
     verbose=False,
     merge=True,
-    job_ids=None,
     **kwargs,
 ):
     import pandas as pd
@@ -31,11 +31,10 @@ def submit(
     params = list(param_space)
     job_files = setup(template, name_format, params, work_dir)
 
-    if job_ids is None: # submit jobs to queue
-        job_ids = queue(use).submit_job_scripts(
-            job_files, verbose=verbose, **kwargs
-        )
-
+    # submit jobs to queue
+    job_ids = queue(use).submit_job_scripts(
+        job_files, verbose=verbose, **kwargs
+    )
     if verbose:
         print(job_ids)
 
@@ -47,13 +46,13 @@ def submit(
         if use == 'local':
             return pd.concat([params, status], axis=1)
         else:
-            return type(status)(params.merge(status, on='job_name'))
+            return params.merge(status, on='job_name')
 
     else: # just return job status
         return status
 
 
-def status(jobs, use='slurm', verbose=False):
+def status(jobs, use='slurm', parse=True, verbose=False):
     from numpy import nan
     jobs = jobs.reset_index()
     
@@ -68,16 +67,16 @@ def status(jobs, use='slurm', verbose=False):
     status['runtime'] = nan
     status.update(new_status)
 
-    # parse additional status from output files
-    work_dir = status['work_dir'].astype(str)
-    job_id = status.index.astype(int).astype(str)
-    stdout_file = work_dir + '/' + job_id + '.stdout'
-    stderr_file = work_dir + '/' + job_id + '.stderr'
-    status['stdout'] = stdout_file.apply(
-        job_output.read_stdout_file, verbose=verbose
-    )
-    status['stderr'] = stderr_file.apply(
-        job_output.read_stderr_file, verbose=verbose
-    )
+    if parse: # parse additional status from output files
+        work_dir = status['work_dir'].astype(str)
+        job_id = status.index.astype(int).astype(str)
+        stdout_file = work_dir + '/' + job_id + '.stdout'
+        stderr_file = work_dir + '/' + job_id + '.stderr'
+        status['stdout'] = stdout_file.apply(
+            job_output.parse_stdout_file, verbose=verbose
+        )
+        status['stderr'] = stderr_file.apply(
+            job_output.parse_stderr_file, verbose=verbose
+        )
 
     return status

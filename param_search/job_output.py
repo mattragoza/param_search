@@ -10,7 +10,8 @@ from .job_queues import SlurmQueue
 def open_reversed(fname, buf_size=8192):
     '''
     Iterate over lines of fname in reverse
-    order, up to a max of tail lines.
+    order, up to a max of tail lines. This
+    enables more efficient output parsing.
     '''
     with open(fname) as f:
         segment = None
@@ -46,123 +47,85 @@ def open_reversed(fname, buf_size=8192):
             yield segment
 
 
-def read_stdout_file(
+def parse_stdout_file(
     stdout_file,
     ignore_pat=None,
-    output_pat=r'^(.*)',
-    verbose=False,
+    output_pat=r'^(\[.*\].*)',
+    verbose=False
 ):
-    try:
-        with open(stdout_file) as f:
-            return f.read()
-    except Exception as e:
+    # check that stdout file exists
+    if not os.path.isfile(stdout_file):
         if verbose:
             print(stdout_file, e, file=sys.stderr)
         return np.nan
 
-    # fancier reversed parsing and filtering
+    lines = open_reversed(stdout_file)
+    return parse_stdout(lines, ignore_pat, output_pat)
+
+
+def parse_stdout(
+    stdout,
+    ignore_pat=None,
+    output_pat=r'^(\[.*\].*)',
+):
+    # convert to reversed lines
+    if isinstance(stdout, str):
+        stdout = reversed(stdout.split('\n'))
+
+    # compile parsing regexes
     if ignore_pat:
         ignore_re = re.compile(ignore_pat)
     output_re = re.compile(output_pat)
 
-    for line in open_reversed(stdout_file):
-        if not ignore_pat or not ignore_re.match(line):
+    # read and parse lines in reverse order
+    for line in stdout:
+        if ignore_pat is None or not ignore_re.match(line):
             m = output_re.match(line)
             if m:
                 return m.group(1)
 
 
-def read_stderr_file(
+def parse_stderr_file(
     stderr_file,
     break_pat=None,
     ignore_pat=None,
     error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$',
     verbose=False,
 ):
-    try:
-        with open(stderr_file) as f:
-            return f.read()
-    except Exception as e:
+    # check that stderr file exists
+    if not os.path.isfile(stderr_file):
         if verbose:
             print(stderr_file, e, file=sys.stderr)
         return np.nan
 
-    # fancier reversed parsing
-    if break_pat:
-        break_re = re.compile(break_pat)
-    if ignore_pat:
-        ignore_re = re.compile(ignore_pat)
-    with open(stderr_file) as f:
-        return f.read()
-    error_re = re.compile(error_pat)
-    for line in open_reversed(stderr_file):
-        if break_pat and break_re.match(line):
-            break
-        if not ignore_pat or not ignore_re.match(line):
-            m = error_re.match(line)
-            if m:
-                return m.group(1)
+    lines = open_reversed(stderr_file)
+    return parse_stderr(lines, break_pat, ignore_pat, error_pat)
 
 
 def parse_stderr(
     stderr,
     break_pat=None,
     ignore_pat=None,
-    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$'
+    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$',
 ):
+    # convert to reversed lines
+    if isinstance(stderr, str):
+        stderr = reversed(stderr.split('\n'))
+
+    # compile parsing regexes
     if break_pat:
         break_re = re.compile(break_pat)
     if ignore_pat:
         ignore_re = re.compile(ignore_pat)
     error_re = re.compile(error_pat)
-    for line in reversed(stderr.split('\n')):
-        if break_pat and break_re.match(line):
+
+    for line in stderr:
+        if break_pat is not None and break_re.match(line):
             break
-        if not ignore_pat or not ignore_re.match(line):
+        if ignore_pat is None or not ignore_re.match(line):
             m = error_re.match(line)
             if m:
                 return m.group(1)
-
-
-def get_job_errors(job_files, stderr_pat=r'(\d+).stderr'):
-    '''
-    Parse the latest errors for a set of job_files.
-    '''
-    errors = []
-    for job_file in job_files:
-        error = get_job_error(job_file, stderr_pat)
-        errors.append(error)
-
-    return errors
-
-
-def get_job_output(job_file, stdout_pat):
-    '''
-    Parse the latest output for job_file.
-    '''
-    job_dir = os.path.dirname(job_file)
-    stdout_files = []
-    for m in match_files_in_dir(job_dir, stdout_pat):
-        stdout_file = m.group(0)
-        job_id = int(m.group(1))
-        stdout_files.append((job_id, stdout_file))
-
-    job_id, stdout_file = sorted(stdout_files)[-1]
-    stdout_file = os.path.join(job_dir, stdout_file)
-    output = read_stdout_file(stdout_file)
-    return output
-
-
-def get_job_outputs(job_files, stdout_pat=r'(\d+).stdout'):
-    '''
-    Parse the latest outputs for a set of job_files.
-    '''
-    outputs = []
-    for job_file in job_files:
-        output = get_job_output(job_file, stdout_pat)
-        outputs.append(output)
-
-    return outputs
 
 
 def as_compiled_re(obj):
@@ -207,7 +170,7 @@ def get_metrics_from_dir(
     return pd.concat(metrics)
 
 
-def get_job_metrics(
+def read_job_metrics(
     jobs, metric_pat=r'(.+)\.(csv|(.*)metrics)', verbose=False, **kwargs
 ):
     '''
@@ -298,26 +261,6 @@ def find_job_id(job_dir, stderr_pat=r'(\d+).stderr'):
     '''
     return max(find_job_ids(job_dir, stderr_pat))
 
-
-def read_job_output(job_dir, output_pat):
-    '''
-    Find job ids that have been submitted by
-    parsing stderr file names in job_dir.
-    '''
-    job_dfs = []
-    for m in match_files_in_dir(job_dir, output_pat):
-        output_file = os.path.join(job_dir, m.group(0))
-        print(output_file)
-        job_df = pd.read_csv(output_file, sep=' ', error_bad_lines=False)
-        job_df['job_name']  = os.path.split(job_dir)[-1]
-        try:
-            array_idx = int(m.group(2))
-            job_df['array_idx'] = array_idx
-        except:
-            pass
-        job_dfs.append(job_df)
-
-    return job_dfs
 
 
 def print_last_error(job_dir, stderr_pat):

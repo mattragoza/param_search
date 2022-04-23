@@ -7,7 +7,6 @@ from multiprocessing import Pool
 from functools import partial
 
 from .common import read_file, write_file, non_string_iterable
-from . import job_output
 
 verbose = False
 
@@ -80,7 +79,7 @@ def call_subprocess(cmd, stdin=None, work_dir=None, verbose=False):
 
 class SubprocessError(RuntimeError):
     '''
-    Raised when a subprocess fails, and contains stderr.
+    Raised when a subprocess fails, and contains the stderr.
     '''
     pass
 
