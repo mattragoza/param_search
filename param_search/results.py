@@ -42,19 +42,30 @@ def plot(
     legend_col=None,
     legend_kws={},
     verbose=False,
-    tight=True,
+    tight=False,
     gridspec_kws={},
 ):
+    if verbose:
+        print('Copying data frame')
     df = df.copy()
+
+    if verbose:
+        print(f'Establishing variables')
 
     # establish variables
     if x is None:
         x = [p for p in df.index.names if p != 'job_name']
     x = as_non_string_iterable(x)
 
+    if verbose:
+        print(f'x = {x}')
+
     if y is None:
         y = df.columns
     y = as_non_string_iterable(y)
+
+    if verbose:
+        print(f'y = {y}')
 
     if grouped: # for each x var, group by every other hue var
         if hue is None:
@@ -63,15 +74,14 @@ def plot(
         grouped_hues = dict()
         for i, x_i in enumerate(x):
             grouped_hues[x_i] = add_group_column(
-                df, [h_j for h_j in hue if h_j != x_i]
+                df, [h_j for h_j in hue if h_j != x_i],
+                verbose=verbose
             )
 
     elif non_string_iterable(hue):
-        hue = add_group_column(df, list(hue))
+        hue = add_group_column(df, list(hue), verbose=verbose)
 
     if verbose:
-        print(f'x = {x}')
-        print(f'y = {y}')
         print(f'hue = {hue}')
         print(f'grouped = {grouped}')
 
@@ -96,6 +106,9 @@ def plot(
     df = df.reset_index()
     assert len(df) > 0, 'empty data frame'
 
+    if verbose:
+        print('Initializing subplots')
+
     n_rows, n_cols = get_n_rows_and_cols(x, y, n_cols)
 
     if legend_row is not None:
@@ -115,6 +128,8 @@ def plot(
     row_ys = defaultdict(set)
     col_xs = defaultdict(set)
 
+    if verbose:
+        print('Plotting data')
     for i, y_i in enumerate(y):
 
         for j, x_j in enumerate(x):
@@ -144,7 +159,10 @@ def plot(
                 curr_df = df[df[block] == block_levels[block_idx]]
 
             if verbose:
-                print((y_i, x_j), (row_idx, col_idx))
+                print(
+                    f'[row {row_idx} column {col_idx}]' +
+                    f' x = {x_j}, y = {y_i}, hue = {hue}'
+                )
 
             plot_func(data=curr_df, x=x_j, y=y_i, hue=hue, ax=ax, **plot_kws)
 
@@ -218,27 +236,25 @@ def get_n_rows_and_cols(x, y, n_cols=None):
 
 
 @lru_cache(100)
-def make_group_value_from_tuple(tup):
-    #tup = tuple('{:.1e}'.format(v) if isinstance(v, float) else v for v in tup)
-    return str(tup).replace('False', '0').replace('True', '1')
+def make_group_value(tup):
+    # expects a tuple of strings
+    return ', '.join(tup).replace('False', '0').replace('True', '1')
 
 
-def make_group_value(values):
-    return make_group_value_from_tuple(tuple(values))
-
-
-def add_group_column(df, group_cols, do_print=False):
+def add_group_column(df, group_cols, sep=', ', verbose=False):
     '''
     Add a new column to df that combines the values
     in group_cols columns into tuple strings.
     '''
     if len(group_cols) == 1:
         return group_cols[0]
-    group = '({})'.format(', '.join(group_cols))
-    if do_print:
-        print('adding group column {}'.format(repr(group)))
-    df[group] = df[group_cols].apply(make_group_value, axis=1)
-    return group
+
+    group_name = sep.join(group_cols)
+    if verbose:
+        print(f'Adding group column {repr(group_name)}')
+
+    df[group_name] = df[group_cols].astype(str).agg(sep.join, axis=1)
+    return group_name
 
 
 def as_array_idx(i, n):
@@ -258,7 +274,7 @@ def get_palette(
     min_val=0.0,
     max_val=1.0,
     n_samples=100,
-    mode=None,
+    type=None,
     reverse=False,
 ):
     assert 0 <= min_val <= 1.0
@@ -266,11 +282,11 @@ def get_palette(
     
     if hues is None:
         if n_hues <= 9:
-            mode = mode or 'muted'
-            hues = sns.color_palette(mode)[:n_hues]
+            type = type or 'muted'
+            hues = sns.color_palette(type)[:n_hues]
         else:
-            mode = mode or 'husl'
-            hues = sns.color_palette(mode, n_hues)
+            type = type or 'husl'
+            hues = sns.color_palette(type, n_hues)
             
     if not isinstance(n_shades, list):
         n_shades = [n_shades] * len(hues)
@@ -303,7 +319,6 @@ def get_palette(
         colors.extend(shades)
         
     return sns.color_palette(colors)
-
 
 
 def annotate_pearson_r(x, y, **kwargs):
