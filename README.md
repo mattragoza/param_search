@@ -1,4 +1,4 @@
-# `param_search`: Hyperparameter search with cluster computing
+# Hyperparameter search with cluster computing
 
 This Python package makes it easy to launch lots of jobs with different parameters to be evaluated on a computer cluster. It also has features to monitor the status of running or completed jobs, aggregate their output, and create visualizations.
 
