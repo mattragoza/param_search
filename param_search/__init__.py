@@ -52,7 +52,7 @@ def submit(
         return status
 
 
-def status(jobs, use='slurm', parse=True, verbose=False):
+def status(jobs, use='slurm', parse=False, verbose=False):
     from numpy import nan
     jobs = jobs.reset_index()
     
@@ -61,22 +61,24 @@ def status(jobs, use='slurm', parse=True, verbose=False):
     new_status = new_status.set_index('job_id')
 
     # merge new status with old status
+    #   we set as nan the values in the old status
+    #   that should be updated by the new status
     status = jobs.set_index('job_id')
     status['job_state'] = nan
     status['node_id'] = nan
     status['runtime'] = nan
     status.update(new_status)
 
-    if parse: # parse additional status from output files
-        work_dir = status['work_dir'].astype(str)
-        job_id = status.index.astype(int).astype(str)
-        stdout_file = work_dir + '/' + job_id + '.stdout'
-        stderr_file = work_dir + '/' + job_id + '.stderr'
-        status['stdout'] = stdout_file.apply(
-            job_output.parse_stdout_file, verbose=verbose
-        )
-        status['stderr'] = stderr_file.apply(
-            job_output.parse_stderr_file, verbose=verbose
-        )
+    # read additional status from output files
+    work_dir = status['work_dir'].astype(str)
+    job_id = status.index.astype(int).astype(str)
+    stdout_file = work_dir + '/' + job_id + '.stdout'
+    stderr_file = work_dir + '/' + job_id + '.stderr'
+    status['stdout'] = stdout_file.apply(
+        job_output.read_stdout_file, parse=parse, verbose=verbose
+    )
+    status['stderr'] = stderr_file.apply(
+        job_output.read_stderr_file, parse=parse, verbose=verbose
+    )
 
     return status

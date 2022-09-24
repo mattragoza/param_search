@@ -47,6 +47,30 @@ def open_reversed(fname, buf_size=8192):
             yield segment
 
 
+def read_file(file_, verbose=False):
+    # check that file exists
+    if not os.path.isfile(file_):
+        if verbose:
+            print(file_, file=sys.stderr)
+        return np.nan
+    with open(file_) as f:
+        return f.read()
+
+
+def read_stdout_file(stdout_file, parse=False, verbose=False):
+    if parse:
+        return parse_stdout_file(stdout_file, verbose=verbose)
+    else:
+        return read_file(stdout_file, verbose=verbose)
+
+
+def read_stderr_file(stderr_file, parse=False, verbose=False):
+    if parse:
+        return parse_stderr_file(stderr_file, verbose=verbose)
+    else:
+        return read_file(stderr_file, verbose=verbose)
+
+
 def parse_stdout_file(
     stdout_file,
     ignore_pat=None,
@@ -56,7 +80,7 @@ def parse_stdout_file(
     # check that stdout file exists
     if not os.path.isfile(stdout_file):
         if verbose:
-            print(stdout_file, e, file=sys.stderr)
+            print(stdout_file, file=sys.stderr)
         return np.nan
 
     lines = open_reversed(stdout_file)
@@ -95,7 +119,7 @@ def parse_stderr_file(
     # check that stderr file exists
     if not os.path.isfile(stderr_file):
         if verbose:
-            print(stderr_file, e, file=sys.stderr)
+            print(stderr_file, file=sys.stderr)
         return np.nan
 
     lines = open_reversed(stderr_file)
