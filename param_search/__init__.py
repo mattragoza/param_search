@@ -52,7 +52,13 @@ def submit(
         return status
 
 
-def status(jobs, use='slurm', parse=False, verbose=False):
+def status(
+    jobs,
+    use='slurm',
+    parse_stdout=False,
+    parse_stderr=False,
+    verbose=False
+):
     from numpy import nan
     jobs = jobs.reset_index()
     
@@ -75,10 +81,10 @@ def status(jobs, use='slurm', parse=False, verbose=False):
     stdout_file = work_dir + '/' + job_id + '.stdout'
     stderr_file = work_dir + '/' + job_id + '.stderr'
     status['stdout'] = stdout_file.apply(
-        job_output.read_stdout_file, parse=parse, verbose=verbose
+        job_output.read_stdout_file, parse=parse_stdout, verbose=verbose
     )
     status['stderr'] = stderr_file.apply(
-        job_output.read_stderr_file, parse=parse, verbose=verbose
+        job_output.read_stderr_file, parse=parse_stderr, verbose=verbose
     )
 
     return status

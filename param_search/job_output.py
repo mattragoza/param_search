@@ -1,5 +1,6 @@
 import sys, os, re, shutil, argparse
 from collections import defaultdict
+from functools import cache
 import numpy as np
 import pandas as pd
 
@@ -59,100 +60,106 @@ def read_file(file_, verbose=False):
 
 def read_stdout_file(stdout_file, parse=False, verbose=False):
     if parse:
-        return parse_stdout_file(stdout_file, verbose=verbose)
+        kwargs = parse if isinstance(parse, dict) else {}
+        return parse_stdout_file(stdout_file, verbose=verbose, **kwargs)
     else:
         return read_file(stdout_file, verbose=verbose)
 
 
 def read_stderr_file(stderr_file, parse=False, verbose=False):
     if parse:
-        return parse_stderr_file(stderr_file, verbose=verbose)
+        kwargs = parse if isinstance(parse, dict) else {}
+        return parse_stderr_file(stderr_file, verbose=verbose, **kwargs)
     else:
         return read_file(stderr_file, verbose=verbose)
 
 
-def parse_stdout_file(
-    stdout_file,
-    ignore_pat=None,
-    output_pat=r'^(\[.*\].*)',
-    verbose=False
-):
+def parse_stdout_file(stdout_file, verbose=False, reverse=False, **kwargs):
     # check that stdout file exists
     if not os.path.isfile(stdout_file):
         if verbose:
             print(stdout_file, file=sys.stderr)
         return np.nan
-
-    lines = open_reversed(stdout_file)
-    return parse_stdout(lines, ignore_pat, output_pat)
-
-
-def parse_stdout(
-    stdout,
-    ignore_pat=None,
-    output_pat=r'^(\[.*\].*)',
-):
-    # convert to reversed lines
-    if isinstance(stdout, str):
-        stdout = reversed(stdout.split('\n'))
-
-    # compile parsing regexes
-    if ignore_pat:
-        ignore_re = re.compile(ignore_pat)
-    output_re = re.compile(output_pat)
-
-    # read and parse lines in reverse order
-    for line in stdout:
-        if ignore_pat is None or not ignore_re.match(line):
-            m = output_re.match(line)
-            if m:
-                return m.group(1)
+    if reverse:
+        lines = open_reversed(stdout_file)
+    else:
+        lines = open(stdout_file)
+    stdout, n_parsed = parse_stdout(lines, **kwargs)
+    if verbose:
+        print(f'{n_parsed} stdout lines parsed')
+    return stdout
 
 
-def parse_stderr_file(
-    stderr_file,
-    break_pat=None,
-    ignore_pat=None,
-    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$',
-    verbose=False,
-):
+def parse_stderr_file(stderr_file, verbose=False, reverse=True, **kwargs):
     # check that stderr file exists
     if not os.path.isfile(stderr_file):
         if verbose:
             print(stderr_file, file=sys.stderr)
         return np.nan
+    if reverse:
+        lines = open_reversed(stderr_file)
+    else:
+        lines = open(stderr_file)
+    stderr, n_parsed = parse_stderr(lines, **kwargs)
+    if verbose:
+        print(f'{n_parsed} stderr lines parsed')
+    return stderr
 
-    lines = open_reversed(stderr_file)
-    return parse_stderr(lines, break_pat, ignore_pat, error_pat)
+
+def parse_stdout(
+    stdout, break_pat=None, ignore_pat=None, output_pat=r'^([a-z0-9]+).*bridges2'
+):
+    # compile parsing regexes
+    output_re = as_compiled_regex(output_pat)
+    if break_pat:
+        break_re = as_compiled_regex(break_pat)
+    if ignore_pat:
+        ignore_re = as_compiled_regex(ignore_pat)
+
+    # read and parse stdout lines
+    n_parsed = 0
+    for line in stdout:
+        if break_pat and break_re.match(line):
+            return '', n_parsed
+        if ignore_pat and ignore_re.match(line):
+            continue
+        m = output_re.match(line)
+        n_parsed += 1
+        if m:
+            return m.group(1), n_parsed
+    return '', n_parsed
 
 
 def parse_stderr(
     stderr,
-    break_pat=None,
+    break_pat=r'^WARNING',
     ignore_pat=None,
-    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed).*)$',
+    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed|No such file|command not found).*)$',
+    **kwargs
 ):
-    # convert to reversed lines
-    if isinstance(stderr, str):
-        stderr = reversed(stderr.split('\n'))
-
     # compile parsing regexes
+    error_re = as_compiled_regex(error_pat)
     if break_pat:
-        break_re = re.compile(break_pat)
+        break_re = as_compiled_regex(break_pat)
     if ignore_pat:
-        ignore_re = re.compile(ignore_pat)
-    error_re = re.compile(error_pat)
+        ignore_re = as_compiled_regex(ignore_pat)
 
+    # read and parse stderr lines
+    n_parsed = 0
     for line in stderr:
-        if break_pat is not None and break_re.match(line):
-            break
-        if ignore_pat is None or not ignore_re.match(line):
-            m = error_re.match(line)
-            if m:
-                return m.group(1)
+        if break_pat and break_re.match(line):
+            return '', n_parsed
+        if ignore_pat and ignore_re.match(line):
+            continue
+        m = error_re.match(line)
+        n_parsed += 1
+        if m:
+            return m.group(1), n_parsed
+    return '', n_parsed
 
 
-def as_compiled_re(obj):
+@cache
+def as_compiled_regex(obj):
     '''
     Compile obj as regex pattern if needed.
     '''
