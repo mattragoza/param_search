@@ -28,8 +28,12 @@ def submit(
     import pandas as pd
 
     # create list of job scripts to submit
-    params = list(param_space)
-    job_files = setup(template, name_format, params, work_dir)
+    if isinstance(param_space, pd.DataFrame):
+        params = param_space
+        job_files = param_space.work_dir + '/job.sh'
+    else:
+        params = list(param_space)
+        job_files = setup(template, name_format, params, work_dir)
 
     # submit jobs to queue
     job_ids = queue(use).submit_job_scripts(

@@ -10,6 +10,7 @@ def setup_job_files(
     name_format,
     param_space,
     work_dir,
+    dry_run=False,
     **kwargs
 ):
     '''
@@ -34,7 +35,8 @@ def setup_job_files(
             os.makedirs(job_dir)
 
         job_file = os.path.join(job_dir, job_base)
-        write_job_file(job_file, template, job_params)
+        if not dry_run:
+            write_job_file(job_file, template, job_params)
         job_files.append(job_file)
 
     return job_files
