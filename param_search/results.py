@@ -1,17 +1,13 @@
-from __future__ import print_function, division
-if __name__ == '__main__':
-    import matplotlib
-    matplotlib.use('Agg')
-import sys, os, re, glob, argparse, parse, ast, shutil
+import matplotlib
+from functools import cache
 from collections import defaultdict, OrderedDict
-from functools import lru_cache
 import numpy as np
-import scipy.stats as stats
-np.random.seed(0)
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from scipy import stats
 import matplotlib.pyplot as plt
+import matplotlib.colors as mpl_colors
+import colorsys
 import seaborn as sns
 
 from .common import (
@@ -45,10 +41,6 @@ def plot(
     tight=False,
     gridspec_kws={},
 ):
-    if verbose:
-        print('Copying data frame')
-    df = df.copy()
-
     if verbose:
         print(f'Establishing variables')
 
@@ -97,7 +89,7 @@ def plot(
 
     legend_defaults = dict(
         loc='upper left',
-        bbox_to_anchor=(0, -0.2),
+        bbox_to_anchor=(1.0, 1.0),
         frameon=False,
     )
     legend_defaults.update(legend_kws)
@@ -198,8 +190,8 @@ def plot(
         if len(row_ys[row_idx]) < 2:
             for col_idx in range(1, n_cols):
                 ax = axes[row_idx,col_idx]
-                ax.set_ylabel(None)
-                ax.set_yticklabels([])
+                #ax.set_ylabel(None)
+                #ax.set_yticklabels([])
 
     # only show bottom-most x label on columns with the same x data
     for col_idx in range(n_cols):
@@ -235,7 +227,7 @@ def get_n_rows_and_cols(x, y, n_cols=None):
     return n_rows, n_cols
 
 
-@lru_cache(100)
+@cache
 def make_group_value(tup):
     # expects a tuple of strings
     return ', '.join(tup).replace('False', '0').replace('True', '1')
@@ -266,7 +258,7 @@ def as_array_idx(i, n):
     return n + i if i < 0 else i
 
 
-def get_palette(
+def get_color_palette(
     n_hues,
     n_shades=1,
     n_repeat=1,
@@ -281,8 +273,8 @@ def get_palette(
     assert 0 <= max_val <= 1.0
     
     if hues is None:
-        if n_hues <= 9:
-            type = type or 'muted'
+        if n_hues <= 10:
+            type = type or 'tab10'
             hues = sns.color_palette(type)[:n_hues]
         else:
             type = type or 'husl'
@@ -319,6 +311,21 @@ def get_palette(
         colors.extend(shades)
         
     return sns.color_palette(colors)
+
+
+def get_gray_color(colors=None):
+    # from seaborn/categorical.py
+    rgb_colors = colors or sns.color_palette()
+    light_vals = [colorsys.rgb_to_hls(*c)[1] for c in rgb_colors]
+    lum = min(light_vals) * 0.6
+    return matplotlib.colors.rgb2hex((lum, lum, lum))
+
+
+def barplot(*args, **kwargs):
+    gray = get_gray_color()
+    lw = matplotlib.rcParams["lines.linewidth"]
+    ax = sns.barplot(errwidth=lw * 2, errcolor=gray, *args, **kwargs)
+    plt.setp(ax.patches, linewidth=lw, edgecolor=gray)
 
 
 def annotate_pearson_r(x, y, **kwargs):
