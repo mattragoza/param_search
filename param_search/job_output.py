@@ -172,7 +172,7 @@ def match_files_in_dir(dir, pat, verbose=False):
     '''
     if verbose:
         print(os.path.join(dir, pat))
-    pat = as_compiled_re(pat)
+    pat = as_compiled_regex(pat)
     for file in os.listdir(dir):
         m = pat.match(file)
         if m is not None:
