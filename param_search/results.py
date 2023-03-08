@@ -328,6 +328,12 @@ def barplot(*args, **kwargs):
     plt.setp(ax.patches, linewidth=lw, edgecolor=gray)
 
 
+def boxplot(*args, **kwargs):
+    ax = sns.boxplot(*args, **kwargs)
+    plt.setp(ax.patches, linewidth=0)
+    plt.setp(ax.lines[4::6], color='w')
+
+
 def annotate_pearson_r(x, y, **kwargs):
     print(kwargs)
     nan = np.isnan(x) | np.isnan(y)
