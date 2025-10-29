@@ -18,19 +18,17 @@ def _as_positional_arg(val):
 
 
 def _as_optional_arg(key, val):
-    val = _as_arg_value(val)
-    if len(key) == 1:
-        return [f'-{key}', val]
-    else:
-        return [f'--{key}={val}']
+    if val is True: # flag
+        return [f'--{key}']
+    return [f'--{key}={_as_arg_value(val)}']
 
 
 def _as_arg_value(val):
-    if isinstance(val, str):
-        return val
-    elif hasattr(val, '__iter__'):
-        return ','.join(map(str, val))
-    return str(val)
+    if utils.is_iterable(val, string_ok=False):
+        s = ','.join([str(v) for v in val])
+    else:
+        s = str(val)
+    return shlex.quote(s)
 
 
 def _decode(s):
@@ -52,7 +50,6 @@ def run_subprocess(cmd, stdin=None, stdout=PIPE, stderr=PIPE, work_dir=None):
     proc = Popen(args, stdin=PIPE, stdout=stdout, stderr=stderr, cwd=work_dir)
 
     stdout, stderr = map(_decode, proc.communicate(stdin))
-
     utils.log(stdout)
 
     if stderr:

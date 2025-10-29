@@ -15,6 +15,7 @@ COLUMN_ORDER = [
     'work_dir', 'script_path',
     'log_dir', 'stdout_path', 'stderr_path',
 ]
+LIVE_STATES = {'PENDING', 'RUNNING', 'CONFIGURING', 'COMPLETING'}
 TERMINAL_STATES = {'COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT'}
 QUEUE = None
 
@@ -155,50 +156,67 @@ def submit(jobs: pd.DataFrame, queue=None, **queue_kws):
 
 
 def status(jobs: pd.DataFrame, queue=None, ret_stat=False):
+    from datetime import datetime
     queue = queue or get_queue()
+    stat_cols = ['job_id', 'job_state', 'runtime', 'node_id']
 
     sel = jobs['job_id'].notna()
     if not sel.any():
-        if ret_stat:
-            return pd.DataFrame(columns=['job_id', 'job_state', 'node_id', 'runtime'])
-        return jobs.copy()
+        return pd.DataFrame(columns=stat_cols) if ret_stat else jobs.copy()
 
     job_ids = jobs.loc[sel, 'job_id'].astype(str).tolist()
-
     stat = queue.status(job_ids)
-
     if ret_stat:
         return stat
 
-    if stat.empty:
-        missing = sel & ~jobs['job_state'].isin(TERMINAL_STATES)
-        jobs = jobs.copy()
-        jobs.loc[missing, 'job_state'] = jobs.loc[missing, 'job_state'].fillna('MISSING')
-        return jobs
-
-    # merge and carefully update job states
     merged = jobs.merge(stat, on='job_id', how='left', suffixes=('', '_new'))
-
     has_new = merged['job_state_new'].notna()
-    merged.loc[has_new, 'job_state'] = merged.loc[has_new, 'job_state_new']
 
-    was_terminal = merged['job_state'].isin(TERMINAL_STATES)
-    missing = ~was_terminal & ~has_new
-    merged.loc[missing, 'job_state'] = 'MISSING'
-
-    merged.loc[has_new, 'state_source'] = 'status'
-    merged.loc[missing, 'state_source'] = merged.loc[missing, 'state_source'].fillna('squeue(missing)')
-
-    for col in ['node_id', 'runtime']:
+    for col in ['job_state', 'node_id', 'runtime']:
         new_col = f'{col}_new'
         if new_col in merged:
-            has_new = merged[new_col].notna()
             merged.loc[has_new, col] = merged.loc[has_new, new_col]
 
-    keep = [c for c in merged.columns if not c.endswith('_new')]
-    out = merged[keep]
+    now = datetime.now().isoformat(timespec='seconds')
+    merged.loc[has_new, 'last_live_at'] = now
+    merged.loc[has_new, 'state_source'] = 'status'
 
-    return out
+    keep_cols = [c for c in merged.columns if not c.endswith('_new')]
+    return merged[keep_cols]
+
+
+def history(jobs: pd.DataFrame, queue=None, ret_hist=False):
+    from datetime import datetime
+    queue = queue or get_queue()
+    hist_cols = ['job_id', 'job_state', 'runtime', 'node_id']
+
+    sel = jobs['job_id'].notna() & ~jobs['job_state'].isin(TERMINAL_STATES)
+    if not sel.any():
+        return pd.DataFrame(columns=hist_cols) if ret_hist else jobs.copy()
+
+    job_ids = jobs.loc[sel, 'job_id'].astype(str).tolist()
+    hist = queue.history(job_ids)
+    if ret_hist:
+        return hist
+
+    if not hist.empty and 'job_state' in hist:
+        hist = hist[hist['job_state'].isin(TERMINAL_STATES)]
+
+    merged = jobs.merge(hist, on='job_id', how='left', suffixes=('', '_new'), sort=False)
+    to_final = merged['job_state_new'].isin(TERMINAL_STATES) & ~merged['job_state'].isin(TERMINAL_STATES)
+
+    for col in ['job_state', 'node_id', 'runtime']:
+        new_col = f'{col}_new'
+        if new_col in merged:
+            merged.loc[to_final, col] = merged.loc[to_final, new_col]
+
+    now = datetime.now().isoformat(timespec='seconds')
+    merged.loc[to_final, 'finalized'] = True
+    merged.loc[to_final, 'finalized_at'] = now
+    merged.loc[to_final, 'state_source'] = 'history'
+
+    keep_cols = [c for c in merged.columns if not c.endswith('_new')]
+    return merged[keep_cols]
 
 
 def collect(jobs: pd.DataFrame, tail=20):
@@ -218,4 +236,47 @@ def collect(jobs: pd.DataFrame, tail=20):
     return out
 
 
+def recover(jobs: pd.DataFrame):
+
+    sel = jobs['job_id'].isna()
+    if not sel.any():
+        return jobs.copy()
+
+    rows = []
+    for idx in jobs.index[sel]:
+        work_dir = Path(jobs.at[idx, 'work_dir'])
+        log_dir = work_dir / 'logs'
+        job_ids = utils.find_job_ids(log_dir)
+        if not job_ids:
+            continue
+        last_job_id = str(job_ids[-1])
+        stdout_path = (log_dir / f'{last_job_id}.out').as_posix()
+        stderr_path = (log_dir / f'{last_job_id}.err').as_posix()
+        n_submits = len(job_ids)
+        rows.append({
+            'index': idx,
+            'job_id': last_job_id,
+            'stdout_path': stdout_path,
+            'stderr_path': stderr_path,
+            'n_submits': n_submits,
+        })
+
+    if not rows:
+        return jobs.copy()
+
+    update = pd.DataFrame(rows).set_index('index')
+    idx = update.index # only assign recovered rows
+
+    out = jobs.copy()
+    out.loc[idx, 'job_id'] = update['job_id'].astype(str)
+    out.loc[idx, 'stdout_path'] = update['stdout_path']
+    out.loc[idx, 'stderr_path'] = update['stderr_path']
+
+    prev_submits = out.loc[idx, 'n_submits'].fillna(0).astype(int)
+    out.loc[idx, 'n_submits'] = prev_submits.combine(update['n_submits'], max)
+
+    needs_state = out.loc[idx, 'job_state'].isna() | out.loc[idx, 'job_state'].eq('NEW')
+    out.loc[idx[needs_state], 'job_state'] = 'RECOVERED'
+
+    return out
 

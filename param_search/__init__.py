@@ -5,5 +5,7 @@ from .api import (
 	setup,
 	submit,
 	status,
-	collect
+	history,
+	collect,
+	recover,
 )

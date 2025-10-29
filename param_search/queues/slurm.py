@@ -1,4 +1,6 @@
-import os, shlex
+from typing import List
+import os, re
+import pandas as pd
 from . import base
 from .. import utils, shell
 
@@ -7,48 +9,66 @@ class SlurmQueue(base.BaseQueue):
 
     @staticmethod
     def _submit_cmd(path, *args, **kwargs):
+
         abs_path = os.path.abspath(path)
         work_dir = os.path.dirname(abs_path)
         logs_dir = os.path.join(work_dir, 'logs')
 
         if 'array' in kwargs:
-            stdout_pat = os.path.join(logs_dir, '%A_%a.out')
-            stderr_pat = os.path.join(logs_dir, '%A_%a.err')
+            stdout_fmt = os.path.join(logs_dir, '%A_%a.out')
+            stderr_fmt = os.path.join(logs_dir, '%A_%a.err')
         else:
-            stdout_pat = os.path.join(logs_dir, '%j.out')
-            stderr_pat = os.path.join(logs_dir, '%j.err')
+            stdout_fmt = os.path.join(logs_dir, '%j.out')
+            stderr_fmt = os.path.join(logs_dir, '%j.err')
 
+        # NOTE: sbatch options must come BEFORE the script path
         return shell.as_command(
             'sbatch',
             *args,
-            output=shlex.quote(stdout_pat),
-            error=shlex.quote(stderr_pat),
+            output=stdout_fmt,
+            error=stderr_fmt,
             **kwargs
-        ) + ' ' + shlex.quote(abs_path)
+        ) + ' ' + shell._as_arg_value(abs_path)
 
     @staticmethod 
     def _status_cmd(job_ids, *args, **kwargs):
 
-        # slurm throws an error if you try to check the
-        #   status of a single job that's not in the queue
+        # slurm errors when a single unknown job is queried; pad with dummy
+        job_ids = [str(j) for j in job_ids]
         if len(job_ids) == 1:
-            job_ids.append('1')
+            job_ids.append('0')
+
+        # columns: JOBID STATE TIME NODELIST(REASON)
+        fmt = '%i %T %M %R'
 
         return shell.as_command(
             'squeue',
             *args,
-            format=shlex.quote('%j %i %P %T %R %M %Z'),
+            format=fmt,
+            noheader=True,
             job=job_ids,
             **kwargs
         )
 
     @staticmethod
-    def _cancel_cmd(*args, **kwargs):
-        return 'scancel ' + _as_command_args(*args, **kwargs)
+    def _history_cmd(job_ids, *args, **kwargs):
+        return shell.as_command(
+            'sacct',
+            *args,
+            job=[str(j) for j in job_ids],
+            format='JobIDRaw,State,Elapsed,NodeList',
+            parsable2=True,
+            noheader=True,
+            allocations=True,
+            **kwargs
+        )
 
     @staticmethod
-    def _parse_submit(stdout):
-        import re
+    def _cancel_cmd(*args, **kwargs):
+        return shell.as_command('scancel', *args, **kwargs)
+
+    @staticmethod
+    def _parse_submit(stdout: str) -> List[str]:
         pat = r'^Submitted batch job (\d+)( on cluster .+)?\n$'
         match = re.match(pat, stdout)
         if match:
@@ -56,51 +76,48 @@ class SlurmQueue(base.BaseQueue):
         raise RuntimeError(f'failed to parse: {stdout:r}')
 
     @staticmethod
-    def _parse_status(stdout):
-        import pandas as pd
-        data = _parse_status_data(stdout)
-        df = pd.DataFrame(data).rename(columns={
-            'NAME': 'job_name',
-            'JOBID': 'job_id',
-            'PARTITION': 'partition',
-            'STATE': 'job_state',
-            'NODELIST(REASON)': 'node_id',
-            'TIME': 'runtime',
-            'WORK_DIR': 'work_dir'
-        })
-
-        # parse array idx from job id
-        if len(df) > 0:
-            df['job_id'] = df['job_id'].astype(str) + '_'
-            df[['job_id', 'array_idx']] = \
-                df['job_id'].str.split('_', n=1, expand=True)
+    def _parse_status(stdout: str) -> pd.DataFrame:
+        columns = ['job_id', 'job_state', 'runtime', 'node_id']
+        df = _parse_status(stdout, columns=columns)
+        if not df.empty: # split off array_idx from job_id
+            parts = df['job_id'].astype(str).str.split('_', n=1, expand=True)
+            df['job_id'] = parts[0]
+            df['array_idx'] = pd.to_numeric(parts[1], errors='coerce')
         else:
-            df['array_idx'] = []
+            df['array_idx'] = pd.Series([], dtype='float')
+        return df
 
-        df['job_id'] = df['job_id'].astype(str)
-        df['array_idx'] = df['array_idx'].replace('', float('nan')).map(pd.to_numeric)
-
-        # parse reason from node id
-        #node_re = re.compile(r'^(.*)\((.+)\)?$')
-        #matches = [node_re.match(x) for x in df['node_id']]
-        #for i, m in enumerate(matches):
-        #    if m is None:
-        #        print(df.iloc[i])
-        #df['node_id'] = [m.group(1) for m in matches]
-        #df['reason'] = [m.group(2) for m in matches]
+    @staticmethod
+    def _parse_history(stdout: str) -> pd.DataFrame:
+        columns = ['job_id', 'job_state', 'runtime', 'node_id']
+        df = _parse_history(stdout, columns=columns)
         return df
 
 
-def _parse_status_data(stdout):
+def _parse_status(stdout: str, columns: List[str], sep=' ') -> pd.DataFrame:
     from .. import text
-    start = stdout.index('NAME')
-    lines = stdout[start:].split('\n')
-    columns = lines[0].split(' ')
-    data = {c: [] for c in columns}
-    for line in filter(len, lines[1:]):
-        fields = text.paren_split(line, sep=' ')
-        if len(fields) != len(columns):
-            raise ValueError(f'failed to parse: {stdout}')
-        for i, field in enumerate(fields):
-            data[columns[i]].append(field)
-    return data
+    if not stdout:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for line in filter(len, stdout.splitlines()):
+        tokens = text.paren_split(line, sep=sep)
+        if len(tokens) != len(columns):
+            raise ValueError(f'failed to parse: {len(tokens)} vs. {len(columns)}')
+        rows.append(dict(zip(columns, tokens)))
+
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _parse_history(stdout: str, columns: List[str], sep='|') -> pd.DataFrame:
+    if not stdout:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for line in filter(len, stdout.splitlines()):
+        tokens = line.split(sep)
+        if len(tokens) != len(columns):
+            raise ValueError(f'failed to parse: {len(tokens)} vs. {len(columns)}')
+        rows.append(dict(zip(columns, tokens)))
+
+    return pd.DataFrame(rows, columns=columns)

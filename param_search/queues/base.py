@@ -17,6 +17,10 @@ class BaseQueue:
         raise NotImplementedError
 
     @staticmethod
+    def _history_cmd(job_ids: List[str], *args, **kwargs) -> str:
+        raise NotImplementedError
+
+    @staticmethod
     def _cancel_cmd(job_ids: List[str], *args, **kwargs) -> str:
         raise NotImplementedError
 
@@ -29,6 +33,10 @@ class BaseQueue:
         raise NotImplementedError
 
     @staticmethod
+    def _parse_history(stdout: str) -> 'pd.DataFrame':
+        raise NotImplementedError
+
+    @staticmethod
     def _parse_cancel(stdout: str) -> Any:
         raise NotImplementedError
 
@@ -37,9 +45,11 @@ class BaseQueue:
         for p in paths:
             abs_path = os.path.abspath(p)
             work_dir = os.path.dirname(abs_path)
+        
             cmd = self._submit_cmd(abs_path, *args, **kwargs)
             out = shell.run_subprocess(cmd, work_dir=work_dir)
             job_id = self._parse_submit(out)
+
             job_ids.append(str(job_id))
         return job_ids
 
@@ -47,6 +57,11 @@ class BaseQueue:
         cmd = self._status_cmd(job_ids, *args, **kwargs)
         out = shell.run_subprocess(cmd)
         return self._parse_status(out)
+
+    def history(self, job_ids, *args, **kwargs):
+        cmd = self._history_cmd(job_ids, *args, **kwargs)
+        out = shell.run_subprocess(cmd)
+        return self._parse_history(out)
 
     def cancel(self, *args, **kwargs):
         cmd = self._cancel_cmd(*args, **kwargs)
