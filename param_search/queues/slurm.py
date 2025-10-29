@@ -1,17 +1,15 @@
 import os, shlex
 from . import base
-from .. import shell, utils
+from .. import utils, shell
 
 
 class SlurmQueue(base.BaseQueue):
 
     @staticmethod
     def _submit_cmd(path, *args, **kwargs):
-
         abs_path = os.path.abspath(path)
         work_dir = os.path.dirname(abs_path)
         logs_dir = os.path.join(work_dir, 'logs')
-        os.makedirs(logs_dir, exist_ok=True)
 
         if 'array' in kwargs:
             stdout_pat = os.path.join(logs_dir, '%A_%a.out')
@@ -22,12 +20,11 @@ class SlurmQueue(base.BaseQueue):
 
         return shell.as_command(
             'sbatch',
-            shlex.quote(abs_path),
             *args,
-            output=stdout_pat,
-            error=stderr_pat,
+            output=shlex.quote(stdout_pat),
+            error=shlex.quote(stderr_pat),
             **kwargs
-        )
+        ) + ' ' + shlex.quote(abs_path)
 
     @staticmethod 
     def _status_cmd(job_ids, *args, **kwargs):
@@ -61,18 +58,8 @@ class SlurmQueue(base.BaseQueue):
     @staticmethod
     def _parse_status(stdout):
         import pandas as pd
-
-        # parse the output table
-        stdout = stdout[stdout.index('NAME'):]
-        lines = stdout.split('\n')
-        columns = lines[0].split(' ')
-        col_data = {c: [] for c in columns}
-        for line in filter(len, lines[1:]):
-            fields = utils.paren_split(line, sep=' ')
-            for i, field in enumerate(fields):
-                col_data[columns[i]].append(field)
-
-        df = pd.DataFrame(col_data).rename(columns={
+        data = _parse_status_data(stdout)
+        df = pd.DataFrame(data).rename(columns={
             'NAME': 'job_name',
             'JOBID': 'job_id',
             'PARTITION': 'partition',
@@ -90,9 +77,8 @@ class SlurmQueue(base.BaseQueue):
         else:
             df['array_idx'] = []
 
-        df['job_id'] = df['job_id'].astype(int)
-        df['array_idx'] = df['array_idx'] \
-            .replace('', float('nan')).map(pd.to_numeric)
+        df['job_id'] = df['job_id'].astype(str)
+        df['array_idx'] = df['array_idx'].replace('', float('nan')).map(pd.to_numeric)
 
         # parse reason from node id
         #node_re = re.compile(r'^(.*)\((.+)\)?$')
@@ -104,3 +90,17 @@ class SlurmQueue(base.BaseQueue):
         #df['reason'] = [m.group(2) for m in matches]
         return df
 
+
+def _parse_status_data(stdout):
+    from .. import text
+    start = stdout.index('NAME')
+    lines = stdout[start:].split('\n')
+    columns = lines[0].split(' ')
+    data = {c: [] for c in columns}
+    for line in filter(len, lines[1:]):
+        fields = text.paren_split(line, sep=' ')
+        if len(fields) != len(columns):
+            raise ValueError(f'failed to parse: {stdout}')
+        for i, field in enumerate(fields):
+            data[columns[i]].append(field)
+    return data

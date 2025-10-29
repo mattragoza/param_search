@@ -1,23 +1,25 @@
-import os
-
+import os, shlex
 from . import base
 from .. import shell
 
 
 class LocalQueue(base.BaseQueue):
 
-    def submit(self, job_files, verbose=False, n_proc=None):
-        cmds = [f'bash {os.path.abspath(f)}' for f in job_files]
-        work_dirs = [os.path.dirname(f) for f in job_files]
-        return shell.run_multiprocess(
-            cmds, work_dirs, verbose=verbose, n_proc=n_proc
-        ), work_dirs
+    def __init__(self):
+        self._records = {} # job_id -> record dict
+        self._counter = 0  # monotonic job_id
 
-    def status(self, results):
-        import pandas as pd
-        results, work_dirs = results
-        status = pd.DataFrame(results, columns=['stdout', 'stderr'])
-        status['work_dir'] = work_dirs
-        return status
+    def _next_id(self):
+        self._counter += 1
+        return f'{self._counter:d}'
 
+    def submit(self, paths):
+        job_ids = []
+        for p in paths:
+            abs_path = os.path.abspath(p)
+            work_dir = os.path.dirname(abs_path)
+            log_dir = os.path.join(work_dir, 'logs')
 
+            stdout_path = os.path.join(log_dir, 'f{j}.out')
+            stderr_path = os.path.join(log_dir, 'f{j}.err')
+            

@@ -1,4 +1,7 @@
 import sys, os, shlex
+from subprocess import Popen, PIPE
+
+from . import utils
 
 
 def as_command(cmd, *args, **kwargs):
@@ -34,21 +37,23 @@ def _decode(s):
     return s.decode() if isinstance(s, bytes) else s
 
 
-def run_subprocess(cmd, stdin=None, work_dir=None):
+def run_subprocess(cmd, stdin=None, stdout=PIPE, stderr=PIPE, work_dir=None):
     '''
     Run cmd as a subprocess in work_dir with stdin.
     Return stdout, raise stderr as SubprocessError.
     '''
-    from subprocess import Popen, PIPE
+    utils.log(cmd)
 
     if sys.platform == 'win32':
         args = cmd
     else:
         args = shlex.split(cmd)
 
-    proc = Popen(args, stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=work_dir)
+    proc = Popen(args, stdin=PIPE, stdout=stdout, stderr=stderr, cwd=work_dir)
 
     stdout, stderr = map(_decode, proc.communicate(stdin))
+
+    utils.log(stdout)
 
     if stderr:
         raise SubprocessError(stderr)
