@@ -1,82 +1,63 @@
 import sys, os, re
 from functools import cache
+from . import utils
+
+
+ERROR_TOKENS = [
+    r'\bTraceback\b',
+    r'\bException\b',
+    r'\bError\b',
+    r'\b(segmentation fault|core dumped)\b',
+    r'\bKilled\b',
+    r'\bErrno\s+\d+\b',
+    r'\b(no such file|command not found)\b',
+    r'\b(out of memory|outofmemory)\b'
+]
+
+def build_line_regex(tokens):
+    alts = '|'.join(tokens)
+    full = rf'^(?P<line>.*?(?:{alts}).*)$'
+    return re.compile(full, re.IGNORECASE|re.MULTILINE)
+
+
+ERROR_RE = build_line_regex(ERROR_TOKENS)
+
+
+def parse_error_line(text: str):
+    if utils.missing(text):
+        return None
+    m = ERROR_RE.search(text)
+    if not m:
+        return None
+    line = m.group('line')
+    return line
 
 
 def read_tail(path, max_lines=20):
-	import pandas as pd
-	if not os.path.exists(path):
-		return pd.NA
-	lines = []
-	for line in open_reversed(path, max_lines):
-		lines.append(line)
-	return '\n'.join(reversed(lines))
-
-
-def parse_stdout(
-    stdout, break_pat=None, ignore_pat=None, output_pat=r'^([a-z0-9]+).*bridges2'
-):
-    # compile parsing regexes
-    output_re = as_compiled_regex(output_pat)
-    if break_pat:
-        break_re = as_compiled_regex(break_pat)
-    if ignore_pat:
-        ignore_re = as_compiled_regex(ignore_pat)
-
-    # read and parse stdout lines
-    n_parsed = 0
-    for line in stdout:
-        if break_pat and break_re.match(line):
-            return '', n_parsed
-        if ignore_pat and ignore_re.match(line):
-            continue
-        m = output_re.match(line)
-        n_parsed += 1
-        if m:
-            return m.group(1), n_parsed
-    return '', n_parsed
-
-
-def parse_stderr(
-    stderr,
-    break_pat=r'^WARNING',
-    ignore_pat=None,
-    error_pat=r'^(.*(Error|Exception|error|fault|failed|Errno|Killed|No such file|command not found).*)$',
-    **kwargs
-):
-    # compile parsing regexes
-    error_re = as_compiled_regex(error_pat)
-    if break_pat:
-        break_re = as_compiled_regex(break_pat)
-    if ignore_pat:
-        ignore_re = as_compiled_regex(ignore_pat)
-
-    # read and parse stderr lines
-    n_parsed = 0
-    for line in stderr:
-        if break_pat and break_re.match(line):
-            return '', n_parsed
-        if ignore_pat and ignore_re.match(line):
-            continue
-        m = error_re.match(line)
-        n_parsed += 1
-        if m:
-            return m.group(1), n_parsed
-    return '', n_parsed
+    import pandas as pd
+    if utils.missing(path):
+        return pd.NA
+    if not os.path.exists(path):
+        return pd.NA
+    lines = []
+    for line in open_reversed(path, max_lines):
+        lines.append(line)
+    return '\n'.join(reversed(lines))
 
 
 def open_reversed(
-	path,
-	max_lines=100,
-	buffer_size=8192,
-	encoding='utf-8',
-	errors='replace'
+    path,
+    max_lines=100,
+    buffer_size=8192,
+    encoding='utf-8',
+    errors='replace'
 ):
     '''
     Generate file lines in reverse order up to max_lines.
     '''
     def _decode(b):
-    	b = b[:-1] if b.endswith(b'\r') else b
-    	return b.decode(encoding, errors=errors)
+        b = b[:-1] if b.endswith(b'\r') else b
+        return b.decode(encoding, errors=errors)
 
     with open(path, 'rb') as f:
         f.seek(0, os.SEEK_END)
@@ -85,24 +66,24 @@ def open_reversed(
         carry = b''
 
         while curr_pos > 0 and emitted < max_lines:
-        	read_size = min(curr_pos, buffer_size)
-        	curr_pos -= read_size
-        	f.seek(curr_pos)
-        	chunk = f.read(read_size)
-        	if not chunk:
-        		break
+            read_size = min(curr_pos, buffer_size)
+            curr_pos -= read_size
+            f.seek(curr_pos)
+            chunk = f.read(read_size)
+            if not chunk:
+                break
 
-        	data = chunk + carry
-        	parts = data.split(b'\n')
-        	carry = parts[0] # first part may be partial line
-        	for line in reversed(parts[1:]):
-        		yield _decode(line)
-        		emitted += 1
-        		if emitted >= max_lines:
-        			return
+            data = chunk + carry
+            parts = data.split(b'\n')
+            carry = parts[0] # first part may be partial line
+            for line in reversed(parts[1:]):
+                yield _decode(line)
+                emitted += 1
+                if emitted >= max_lines:
+                    return
 
         if curr_pos == 0 and carry and emitted < max_lines:
-        	yield _decode(carry)
+            yield _decode(carry)
 
 
 def paren_split(s, sep):
@@ -129,37 +110,4 @@ def paren_split(s, sep):
     else:
         raise ValueError('missing close parentheses')
     return fields
-
-
-
-def parse_stdout_file(stdout_file, verbose=False, reverse=False, **kwargs):
-    # check that stdout file exists
-    if not os.path.isfile(stdout_file):
-        if verbose:
-            print(stdout_file, file=sys.stderr)
-        return np.nan
-    if reverse:
-        lines = open_reversed(stdout_file)
-    else:
-        lines = open(stdout_file)
-    stdout, n_parsed = parse_stdout(lines, **kwargs)
-    if verbose:
-        print(f'{n_parsed} stdout lines parsed')
-    return stdout
-
-
-def parse_stderr_file(stderr_file, verbose=False, reverse=True, **kwargs):
-    # check that stderr file exists
-    if not os.path.isfile(stderr_file):
-        if verbose:
-            print(stderr_file, file=sys.stderr)
-        return np.nan
-    if reverse:
-        lines = open_reversed(stderr_file)
-    else:
-        lines = open(stderr_file)
-    stderr, n_parsed = parse_stderr(lines, **kwargs)
-    if verbose:
-        print(f'{n_parsed} stderr lines parsed')
-    return stderr
 

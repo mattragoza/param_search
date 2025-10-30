@@ -80,9 +80,10 @@ class SlurmQueue(base.BaseQueue):
         columns = ['job_id', 'job_state', 'runtime', 'node_id']
         df = _parse_status(stdout, columns=columns)
         if not df.empty: # split off array_idx from job_id
-            parts = df['job_id'].astype(str).str.split('_', n=1, expand=True)
-            df['job_id'] = parts[0]
-            df['array_idx'] = pd.to_numeric(parts[1], errors='coerce')
+            parts = df['job_id'].astype(str).str.split('_', n=1, expand=False)
+            df['job_id'] = [p[0] for p in parts]
+            array_inds = [p[1] if len(p) == 2 else None for p in parts]
+            df['array_idx'] = pd.to_numeric(array_inds, errors='coerce')
         else:
             df['array_idx'] = pd.Series([], dtype='float')
         return df

@@ -1,4 +1,4 @@
-from typing import Iterable, Dict, Any
+from typing import Iterable, Callable, Dict, Any
 from pathlib import Path
 import pandas as pd
 
@@ -12,11 +12,13 @@ COLUMN_ORDER = [
     'job_name', 'job_state', 'n_submits', 
     'job_id', 'node_id', 'runtime',
     'stdout', 'stderr',
-    'work_dir', 'script_path',
+    'base_dir',
+    'work_dir', 'script_path', 'output_path',
     'log_dir', 'stdout_path', 'stderr_path',
 ]
 LIVE_STATES = {'PENDING', 'RUNNING', 'CONFIGURING', 'COMPLETING'}
 TERMINAL_STATES = {'COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT'}
+AUTOSAVE = True
 QUEUE = None
 
 
@@ -32,6 +34,32 @@ def set_queue(queue):
     QUEUE = queue
 
 
+def set_autosave(val):
+    global AUTOSAVE
+    AUTOSAVE = val
+
+
+def _autosave(jobs):
+    if AUTOSAVE:
+        save(jobs)
+
+
+def save(jobs: pd.DataFrame, base_dir: Path=None):
+    base_dir = base_dir or utils.get_base_dir(jobs)
+    path = Path(base_dir) / 'jobs.parquet'
+    utils.log(f'Saving {path}')
+    utils.atomic_write(path, jobs)
+    return path
+
+
+def load(base_dir) -> pd.DataFrame:
+    path = Path(base_dir) / 'jobs.parquet'
+    if not path.is_file():
+        raise FileNotFoundError(f'No jobs found at {path}')
+    utils.log(f'Loading {path}')
+    return pd.read_parquet(path)
+
+
 def set_backend(backend):
     backend = backend.lower()
     if backend == 'local':
@@ -44,6 +72,7 @@ def set_backend(backend):
         raise ValueError(f'invalid backend: {backend}')
 
 
+
 def param_grid(**dims) -> Iterable[Dict[str, Any]]:
     from itertools import product
     keys = list(dims.keys())
@@ -52,13 +81,14 @@ def param_grid(**dims) -> Iterable[Dict[str, Any]]:
 
 
 def setup(
+    base_dir: str|Path,
     template: str,
     name_format: str,
     param_space: Iterable[Dict[str, Any]],
-    base_dir: Path='.',
     script_name: str='run.sh',
+    output_name: str='output.csv',
     overwrite: bool=False,
-    write: bool=True,
+    write: bool=True
 ) -> pd.DataFrame:
     import json
 
@@ -71,31 +101,31 @@ def setup(
         params_hash = utils.hash_params(p)
 
         job_name = name_format.format(params_hash=params_hash, **p)
-
         if not (set(job_name) <= VALID_CHARS):
             raise ValueError(f'invalid job name: {job_name}')
-
         if job_name in used_names:
             raise RuntimeError(f'name not unique: {job_name}')
-
         used_names.add(job_name)
 
         work_dir    = base_dir / job_name
-        log_dir     = work_dir / 'logs'
         script_path = work_dir / script_name
-        script_body = template.format(job_name=job_name, params_hash=params_hash, **p)
+        output_path = work_dir / output_name
+        log_dir     = work_dir / 'logs'
 
+        script_body = template.format(
+            params_hash=params_hash, 
+            job_name=job_name,
+            output_path=output_path,
+            **p
+        )
         if write:
             if script_path.exists() and not overwrite:
                 raise IOError(f'{script_path} already exists')
 
-            if not work_dir.is_dir():
-                utils.log(f'mkdir {work_dir}')
-                work_dir.mkdir(parents=True)
-
-            if not log_dir.is_dir():
-                utils.log(f'mkdir {log_dir}')
-                log_dir.mkdir(parents=True, exist_ok=True)
+            utils.make_dirs(work_dir)
+            utils.make_dirs(script_path.parent)
+            utils.make_dirs(output_path.parent)
+            utils.make_dirs(log_dir)
 
             utils.log(f'write {script_path}')
             script_path.write_text(script_body)
@@ -107,9 +137,10 @@ def setup(
             'job_id': pd.NA,
             'node_id': pd.NA,
             'runtime': pd.NA,
-            'work_dir': Path(work_dir),
-            'script_path': Path(script_path),
-            'log_dir': Path(log_dir),
+            'work_dir': str(work_dir),
+            'script_path': str(script_path),
+            'output_path': str(output_path),
+            'log_dir': str(log_dir),
             'stdout_path': pd.NA,
             'stderr_path': pd.NA,
             'stdout': pd.NA,
@@ -120,24 +151,29 @@ def setup(
         })
 
     jobs = pd.DataFrame(rows)
-    param_cols = [c for c in jobs.columns if c.startswith('params')]
+    jobs['base_dir'] = str(base_dir) # store for saves/loads
 
     # reorder columns for readability
-    return jobs[COLUMN_ORDER + param_cols]
+    param_cols = [c for c in jobs.columns if c.startswith('params')]
+    out = jobs[COLUMN_ORDER + param_cols]
+    if write:
+        _autosave(out)
+    return out
 
 
-def submit(jobs: pd.DataFrame, queue=None, **queue_kws):
+def submit(jobs: pd.DataFrame, queue=None, queue_kws=None) -> pd.DataFrame:
     queue = queue or get_queue()
 
     sel = jobs['job_id'].isna()
     if not sel.any():
+        utils.log('no jobs require submit')
         return jobs.copy()
 
     scripts   = jobs.loc[sel, 'script_path'].map(Path).tolist()
     work_dirs = jobs.loc[sel, 'work_dir'].map(Path).tolist()
     log_dirs  = jobs.loc[sel, 'log_dir'].map(Path).tolist()
 
-    job_ids = [str(j) for j in queue.submit(scripts, **queue_kws)]
+    job_ids = [str(j) for j in queue.submit(scripts, **(queue_kws or {}))]
 
     if len(job_ids) != len(scripts):
         raise RuntimeError(f'num job_ids mismatch: {len(job_ids)} vs. {len(scripts)}')
@@ -151,17 +187,18 @@ def submit(jobs: pd.DataFrame, queue=None, **queue_kws):
     out.loc[sel, 'n_submits']   = out.loc[sel, 'n_submits'].fillna(0).astype(int) + 1
     out.loc[sel, 'stdout_path'] = stdout_paths
     out.loc[sel, 'stderr_path'] = stderr_paths
-
+    _autosave(out)
     return out
 
 
-def status(jobs: pd.DataFrame, queue=None, ret_stat=False):
+def status(jobs: pd.DataFrame, queue=None, ret_stat=False) -> pd.DataFrame:
     from datetime import datetime
     queue = queue or get_queue()
     stat_cols = ['job_id', 'job_state', 'runtime', 'node_id']
 
     sel = jobs['job_id'].notna()
     if not sel.any():
+        utils.log('no jobs require status')
         return pd.DataFrame(columns=stat_cols) if ret_stat else jobs.copy()
 
     job_ids = jobs.loc[sel, 'job_id'].astype(str).tolist()
@@ -182,16 +219,19 @@ def status(jobs: pd.DataFrame, queue=None, ret_stat=False):
     merged.loc[has_new, 'state_source'] = 'status'
 
     keep_cols = [c for c in merged.columns if not c.endswith('_new')]
-    return merged[keep_cols]
+    out = merged[keep_cols]
+    _autosave(out)
+    return out
 
 
-def history(jobs: pd.DataFrame, queue=None, ret_hist=False):
+def history(jobs: pd.DataFrame, queue=None, ret_hist=False) -> pd.DataFrame:
     from datetime import datetime
     queue = queue or get_queue()
     hist_cols = ['job_id', 'job_state', 'runtime', 'node_id']
 
     sel = jobs['job_id'].notna() & ~jobs['job_state'].isin(TERMINAL_STATES)
     if not sel.any():
+        utils.log('no jobs require history')
         return pd.DataFrame(columns=hist_cols) if ret_hist else jobs.copy()
 
     job_ids = jobs.loc[sel, 'job_id'].astype(str).tolist()
@@ -216,27 +256,52 @@ def history(jobs: pd.DataFrame, queue=None, ret_hist=False):
     merged.loc[to_final, 'state_source'] = 'history'
 
     keep_cols = [c for c in merged.columns if not c.endswith('_new')]
-    return merged[keep_cols]
-
-
-def collect(jobs: pd.DataFrame, tail=20):
-    from . import text
-
-    sel = jobs['stdout_path'].notna() & jobs['stderr_path'].notna()
-    if not sel.any():
-        return jobs.copy()
-
-    stdout = jobs.loc[sel, 'stdout_path'].map(text.read_tail)
-    stderr = jobs.loc[sel, 'stderr_path'].map(text.read_tail)
-
-    out = jobs.copy()
-    out.loc[sel, 'stdout'] = stdout
-    out.loc[sel, 'stderr'] = stderr
-
+    out = merged[keep_cols]
+    _autosave(out)
     return out
 
 
-def recover(jobs: pd.DataFrame):
+def collect(jobs: pd.DataFrame, tail: int=20) -> pd.DataFrame:
+    from . import text
+    out = jobs.copy()
+
+    has_logs = jobs['stdout_path'].notna() & jobs['stderr_path'].notna()
+    if has_logs.any():
+        utils.log('parsing log files')
+        read_tail = lambda p: text.read_tail(p, max_lines=tail)
+        stdout = jobs.loc[has_logs, 'stdout_path'].map(read_tail)
+        stderr = jobs.loc[has_logs, 'stderr_path'].map(read_tail)
+        error  = [text.parse_error_line(s) for s in stderr]
+
+        out.loc[has_logs, 'stdout'] = stdout
+        out.loc[has_logs, 'stderr'] = stderr
+        out.loc[has_logs, 'error_line']  = error
+
+    utils.log('checking output files')
+
+    # output validation
+    exist_vals, fsize_vals, mtime_vals = [], [], []
+
+    for p in out['output_path'].astype(str).fillna(''):
+        output_path = Path(p)
+        if output_path.is_file():
+            exist_vals.append(True)
+            stat = output_path.stat()
+            fsize_vals.append(stat.st_size)
+            mtime_vals.append(stat.st_mtime)
+        else:
+            exist_vals.append(False)
+            fsize_vals.append(pd.NA)
+            mtime_vals.append(pd.NA)
+
+    out['output_exists'] = exist_vals
+    out['output_fsize']  = fsize_vals
+    out['output_mtime']  = mtime_vals
+    _autosave(out)
+    return out
+
+
+def recover(jobs: pd.DataFrame) -> pd.DataFrame:
 
     sel = jobs['job_id'].isna()
     if not sel.any():
@@ -277,6 +342,44 @@ def recover(jobs: pd.DataFrame):
 
     needs_state = out.loc[idx, 'job_state'].isna() | out.loc[idx, 'job_state'].eq('NEW')
     out.loc[idx[needs_state], 'job_state'] = 'RECOVERED'
-
+    _autosave(out)
     return out
+
+
+def outputs(
+    jobs: pd.DataFrame,
+    meta_cols: Iterable[str]=('job_name', 'job_id', 'params_hash'),
+    include_params: bool=True,
+    read_csv_kws: Dict[str, Any]=None,
+    skip_errors: bool=False
+) -> pd.DataFrame:
+
+    meta_cols = list(meta_cols)
+    if include_params:
+        meta_cols += [c for c in jobs.columns if c.startswith('params.')]
+
+    data = []
+    for idx, row in jobs.iterrows():
+        job_name = row.get('job_name')
+        out_path = row.get('output_path')
+
+        df, error = utils.safe_load(out_path, **(read_csv_kws or {}))
+        if error and not skip_errors:
+            raise RuntimeError(f'Job {job_name}: {error}')
+        elif error:
+            utils.warn(f'Job {job_name}: {error}')
+            continue
+
+        df = df.copy()
+        df['source_path'] = str(out_path)
+        meta = {c: row.get(c, pd.NA) for c in meta_cols}
+        for k, v in meta.items():
+            df[k] = v
+
+        data.append(df)
+
+    if not data:
+        return pd.DataFrame(columns=meta_cols + ['source_path', 'load_error'])
+
+    return pd.concat(data, ignore_index=True)
 
