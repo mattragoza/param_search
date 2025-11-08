@@ -125,7 +125,7 @@ def setup(
         log_dir     = work_dir / 'logs'
 
         config_path, config_hash = freeze_params(p, config_dir, key='config')
-        p['config'] = str(config_path)
+        p = {**p, 'config': str(config_path)}
 
         script_body = template.format(
             params_hash=params_hash, 
