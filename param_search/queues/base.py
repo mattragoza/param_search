@@ -40,17 +40,19 @@ class BaseQueue:
     def _parse_cancel(stdout: str) -> Any:
         raise NotImplementedError
 
-    def submit(self, paths, *args, **kwargs) -> List[str]:
+    def submit(self, paths, *args, dry_run=False, **kwargs) -> List[str]:
         job_ids = []
         for p in paths:
             abs_path = os.path.abspath(p)
             work_dir = os.path.dirname(abs_path)
-        
             cmd = self._submit_cmd(abs_path, *args, **kwargs)
-            out = shell.run_subprocess(cmd, work_dir=work_dir)
-            job_id = self._parse_submit(out)
+            if dry_run:
+                utils.log(cmd)
+            else:
+                out = shell.run_subprocess(cmd, work_dir=work_dir)
+                job_id = self._parse_submit(out)
+                job_ids.append(str(job_id))
 
-            job_ids.append(str(job_id))
         return job_ids
 
     def status(self, job_ids, *args, **kwargs):

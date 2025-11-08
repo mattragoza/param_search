@@ -9,7 +9,8 @@ from .utils import set_verbose
 
 VALID_CHARS = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890.-_')
 COLUMN_ORDER = [
-    'job_name', 'job_state', 'n_submits', 
+    'job_name',
+    'job_state', 'n_submits', 
     'job_id', 'node_id', 'runtime',
     'stdout', 'stderr',
     'base_dir',
@@ -80,6 +81,16 @@ def param_grid(**dims) -> Iterable[Dict[str, Any]]:
     return [dict(zip(keys, vals)) for vals in product(*dims)]
 
 
+def freeze_params(params, freeze_dir, key):
+    src_path = params.get(key)
+    src_path = Path(str(src_path))
+    src_hash = utils.hash_config(src_path)
+    dst_name = f'{src_hash}{src_path.suffix}'
+    dst_path = freeze_dir / dst_name
+    utils.atomic_copy(src_path, dst_path)
+    return dst_path, src_hash
+
+
 def setup(
     base_dir: str|Path,
     template: str,
@@ -110,7 +121,11 @@ def setup(
         work_dir    = base_dir / job_name
         script_path = work_dir / script_name
         output_path = work_dir / output_name
+        config_dir  = work_dir / 'config'
         log_dir     = work_dir / 'logs'
+
+        config_path, config_hash = freeze_params(p, config_dir, key='config')
+        p['config'] = str(config_path)
 
         script_body = template.format(
             params_hash=params_hash, 
@@ -118,6 +133,7 @@ def setup(
             output_path=output_path,
             **p
         )
+
         if write:
             if script_path.exists() and not overwrite:
                 raise IOError(f'{script_path} already exists')
@@ -125,6 +141,7 @@ def setup(
             utils.make_dirs(work_dir)
             utils.make_dirs(script_path.parent)
             utils.make_dirs(output_path.parent)
+            utils.make_dirs(config_dir)
             utils.make_dirs(log_dir)
 
             utils.log(f'write {script_path}')
@@ -140,6 +157,9 @@ def setup(
             'work_dir': str(work_dir),
             'script_path': str(script_path),
             'output_path': str(output_path),
+            'config_dir':  str(config_dir),
+            'config_path': str(config_path),
+            'config_hash': config_hash,
             'log_dir': str(log_dir),
             'stdout_path': pd.NA,
             'stderr_path': pd.NA,
@@ -161,7 +181,7 @@ def setup(
     return out
 
 
-def submit(jobs: pd.DataFrame, queue=None, queue_kws=None) -> pd.DataFrame:
+def submit(jobs: pd.DataFrame, queue=None, dry_run=False, **queue_kws) -> pd.DataFrame:
     queue = queue or get_queue()
 
     sel = jobs['job_id'].isna()
@@ -173,7 +193,7 @@ def submit(jobs: pd.DataFrame, queue=None, queue_kws=None) -> pd.DataFrame:
     work_dirs = jobs.loc[sel, 'work_dir'].map(Path).tolist()
     log_dirs  = jobs.loc[sel, 'log_dir'].map(Path).tolist()
 
-    job_ids = [str(j) for j in queue.submit(scripts, **(queue_kws or {}))]
+    job_ids = [str(j) for j in queue.submit(scripts, dry_run=dry_run, **queue_kws)]
 
     if len(job_ids) != len(scripts):
         raise RuntimeError(f'num job_ids mismatch: {len(job_ids)} vs. {len(scripts)}')
@@ -271,11 +291,11 @@ def collect(jobs: pd.DataFrame, tail: int=20) -> pd.DataFrame:
         read_tail = lambda p: text.read_tail(p, max_lines=tail)
         stdout = jobs.loc[has_logs, 'stdout_path'].map(read_tail)
         stderr = jobs.loc[has_logs, 'stderr_path'].map(read_tail)
-        error  = [text.parse_error_line(s) for s in stderr]
+        #error  = [text.parse_error_line(s) for s in stderr]
 
         out.loc[has_logs, 'stdout'] = stdout
         out.loc[has_logs, 'stderr'] = stderr
-        out.loc[has_logs, 'error_line']  = error
+        #out.loc[has_logs, 'error_line']  = error
 
     utils.log('checking output files')
 

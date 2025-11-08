@@ -1,4 +1,4 @@
-import sys, os, re
+import sys, os, re, shutil, hashlib, json
 from pathlib import Path
 
 LOG_RE = re.compile(r"(?P<job_id>\d+)(?:_(?P<array_idx>\d+))?\.(?P<ext>out|err)$")
@@ -50,9 +50,14 @@ def namespace(dct, name):
 
 
 def hash_params(params: dict) -> str:
-    import json, hashlib
     to_hash = json.dumps(params, sort_keys=True).encode()
     return hashlib.blake2b(to_hash, digest_size=8).hexdigest()
+
+
+def hash_config(path: str) -> str:
+    with open(path) as f:
+        data = json.load(f)
+    return hash_params(data)
 
 
 def find_job_ids(
@@ -105,18 +110,26 @@ def safe_load(path, *args, **kwargs):
         return None, 'read csv failed'
 
 
+def atomic_copy(src, dst):
+    src, dst = Path(src), Path(dst)
+    make_dirs(dst.parent)
+    tmp = dst.with_suffix(dst.suffix + '.tmp')
+    try:
+        shutil.copy2(src, tmp)
+        tmp.replace(dst)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def atomic_write(path, df):
-    import os, tempfile, shutil
     path = Path(path)
     make_dirs(path.parent)
-    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+    tmp = path.with_suffix(path.suffix + '.tmp')
     try:
-        df.to_parquet(tmp_path, index=False)
-        os.replace(tmp_path, path) # atomic
+        df.to_parquet(tmp, index=False)
+        tmp.replace(path) # atomic
     finally:
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
 
 
 def get_base_dir(jobs):
