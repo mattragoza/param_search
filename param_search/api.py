@@ -18,7 +18,7 @@ COLUMN_ORDER = [
     'log_dir', 'stdout_path', 'stderr_path',
 ]
 LIVE_STATES = {'PENDING', 'RUNNING', 'CONFIGURING', 'COMPLETING'}
-TERMINAL_STATES = {'COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT'}
+TERMINAL_STATES = {'COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'OUT_OF_MEMORY'}
 AUTOSAVE = True
 QUEUE = None
 
@@ -371,17 +371,22 @@ def outputs(
     meta_cols: Iterable[str]=('job_name', 'job_id', 'params_hash'),
     include_params: bool=True,
     read_csv_kws: Dict[str, Any]=None,
-    skip_errors: bool=False
+    skip_errors: bool=False,
+    output_name: str=None
 ) -> pd.DataFrame:
+    import tqdm
 
     meta_cols = list(meta_cols)
     if include_params:
         meta_cols += [c for c in jobs.columns if c.startswith('params.')]
 
     data = []
-    for idx, row in jobs.iterrows():
+    for idx, row in tqdm.tqdm(jobs.iterrows(), total=len(jobs)):
         job_name = row.get('job_name')
-        out_path = row.get('output_path')
+        if output_name is None:
+            out_path = row.get('output_path')
+        else:
+            out_path = Path(row.get('work_dir')) / output_name
 
         df, error = utils.safe_load(out_path, **(read_csv_kws or {}))
         if error and not skip_errors:

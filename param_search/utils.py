@@ -1,4 +1,4 @@
-import sys, os, re, shutil, hashlib, json
+import sys, os, re, shutil, hashlib, json, yaml
 from pathlib import Path
 
 LOG_RE = re.compile(r"(?P<job_id>\d+)(?:_(?P<array_idx>\d+))?\.(?P<ext>out|err)$")
@@ -56,7 +56,10 @@ def hash_params(params: dict) -> str:
 
 def hash_config(path: str) -> str:
     with open(path) as f:
-        data = json.load(f)
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            data = yaml.safe_load(f)
     return hash_params(data)
 
 
@@ -106,7 +109,7 @@ def safe_load(path, *args, **kwargs):
     try:
         data = pd.read_csv(path, *args, **kwargs)
         return data, None
-    except Exception as e:
+    except RuntimeError as e:
         return None, 'read csv failed'
 
 
