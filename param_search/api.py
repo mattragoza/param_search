@@ -62,16 +62,17 @@ def load(base_dir) -> pd.DataFrame:
 
 
 def set_backend(backend):
-    backend = backend.lower()
-    if backend == 'local':
+    b = backend.lower()
+    if b == 'local':
         set_queue(queues.local.LocalQueue())
-    elif backend == 'slurm':
+    elif b in {'slurm', 'psc', 'bridges2'}:
         set_queue(queues.slurm.SlurmQueue())
-    elif backend == 'torque':
+    elif b in {'torque'}:
         set_queue(queues.torque.TorqueQueue())
+    elif b in {'sge', 'bu', 'bu-scc', 'scc'}:
+        set_queue(queues.sge.SGEQueue())
     else:
-        raise ValueError(f'invalid backend: {backend}')
-
+        raise ValueError(f'Invalid backend: {backend!r}')
 
 
 def param_grid(**dims) -> Iterable[Dict[str, Any]]:

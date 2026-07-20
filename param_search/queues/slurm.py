@@ -1,6 +1,8 @@
 from typing import List
 import os, re
+
 import pandas as pd
+
 from . import base
 from .. import utils, shell
 
@@ -14,32 +16,35 @@ class SlurmQueue(base.BaseQueue):
         work_dir = os.path.dirname(abs_path)
         logs_dir = os.path.join(work_dir, 'logs')
 
-        if 'array' in kwargs:
-            stdout_fmt = os.path.join(logs_dir, '%A_%a.out')
-            stderr_fmt = os.path.join(logs_dir, '%A_%a.err')
+        if kwargs.get('array'):
+            stdout_fmt = os.path.join(logs_dir, r'%A_%a.out')
+            stderr_fmt = os.path.join(logs_dir, r'%A_%a.err')
         else:
-            stdout_fmt = os.path.join(logs_dir, '%j.out')
-            stderr_fmt = os.path.join(logs_dir, '%j.err')
+            stdout_fmt = os.path.join(logs_dir, r'%j.out')
+            stderr_fmt = os.path.join(logs_dir, r'%j.err')
 
-        # NOTE: sbatch options must come BEFORE the script path
-        return shell.as_command(
+        cmd = shell.as_command(
             'sbatch',
             *args,
             output=stdout_fmt,
             error=stderr_fmt,
             **kwargs
-        ) + ' ' + shell._as_arg_value(abs_path)
+        )
+
+        # sbatch options must precede the script path
+        return cmd + ' ' + shell.as_arg_value(abs_path)
 
     @staticmethod 
     def _status_cmd(job_ids, *args, **kwargs):
 
-        # slurm errors when a single unknown job is queried; pad with dummy
+        # slurm raises an error when querying a single invalid job
+        #   we cirucmvent this by also querying a dummy job id
         job_ids = [str(j) for j in job_ids]
         if len(job_ids) == 1:
             job_ids.append('0')
 
         # columns: JOBID STATE TIME NODELIST(REASON)
-        fmt = '%i %T %M %R'
+        fmt = r'%i %T %M %R'
 
         return shell.as_command(
             'squeue',
@@ -69,11 +74,15 @@ class SlurmQueue(base.BaseQueue):
 
     @staticmethod
     def _parse_submit(stdout: str) -> List[str]:
-        pat = r'^Submitted batch job (\d+)( on cluster .+)?\n$'
-        match = re.match(pat, stdout)
+
+        match = re.match(
+            r'^Submitted batch job (\d+)( on cluster .+)?\n$',
+            stdout
+        )
         if match:
             return int(match.group(1))
-        raise RuntimeError(f'failed to parse: {stdout:r}')
+
+        raise RuntimeError(f'Failed to parse: {stdout!r}')
 
     @staticmethod
     def _parse_status(stdout: str) -> pd.DataFrame:
@@ -104,7 +113,7 @@ def _parse_status(stdout: str, columns: List[str], sep=' ') -> pd.DataFrame:
     for line in filter(len, stdout.splitlines()):
         tokens = text.paren_split(line, sep=sep)
         if len(tokens) != len(columns):
-            raise ValueError(f'failed to parse: {len(tokens)} vs. {len(columns)}')
+            raise RuntimeError(f'Failed to parse: {len(tokens)} vs. {len(columns)}')
         rows.append(dict(zip(columns, tokens)))
 
     return pd.DataFrame(rows, columns=columns)
